@@ -14,3 +14,6 @@
 **Why not `npm audit fix --force`:** it downgrades `web-ext` to 5.1.0, a years-old release that breaks WXT.
 
 **Recheck:** whenever WXT is upgraded.
+## @scure/bip39 pinned to viem's version
+
+We use `@scure/bip39` directly for phrase validation; viem uses it internally for generation and derivation. Our version is pinned to match viem's (currently 1.6.0) so a single copy handles all phrase operations. When upgrading viem, check `npm ls @scure/bip39` and match the version.
