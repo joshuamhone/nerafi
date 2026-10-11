@@ -5,6 +5,6 @@ export default defineConfig({
   manifest: {
     name: 'Nerafi',
     description: 'Testnet-only wallet that explains transactions before you sign.',
-    permissions: [],
+    permissions: ['storage'],
   },
 });
