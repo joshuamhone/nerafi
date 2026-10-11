@@ -57,6 +57,32 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **One RPC endpoint.** Balance lookups and sends use a single keyless public
   Sepolia endpoint.
 
+## Design
+
+The wallet is styled like a security document. The one irreversible action —
+signing — is presented as a paper cheque you sign, while the rest of the wallet
+stays on a dark, restrained surface. The goal is to make signing feel deliberate
+and to keep everything being approved on one calm page.
+
+- **The cheque review.** The review screen is a paper-coloured document with a
+  guilloché border band, a plain-English memo, and a rule-lined field list (pay
+  to, amount, maximum fee, total, network). The password field is drawn as a
+  signature line, labelled "Sign with your password", and the confirm button uses
+  an ink-on-foil treatment. The guilloché lines are generated procedurally from
+  deterministic sine/cosine maths, with no randomness, and are decorative only.
+- **Chunked addresses.** Addresses are always shown in full, never truncated,
+  grouped into four-character chunks with the `0x` prefix separated, and
+  alternating between two colours so that a changed character is easier to spot.
+  A screen reader receives the plain, unbroken address instead.
+- **Bundled fonts and icons.** IBM Plex Sans (UI) and IBM Plex Mono (addresses
+  and hashes, with tabular numerals for amounts) are bundled locally through
+  Fontsource; the icons are inline SVG. Nothing is fetched from a CDN, so the
+  interface makes no network request to render.
+- **Reduced motion.** The confirmed-transaction stamp and the pending indicator
+  are the only non-user-triggered animations, and both sit inside
+  `@media (prefers-reduced-motion: no-preference)`, so they are disabled when the
+  operating system asks for reduced motion.
+
 ## Getting test ETH
 
 To try sending, you need Sepolia test ETH on the address for your test recovery
@@ -85,8 +111,11 @@ Run these commands inside the `extension/` directory:
 extension/
   entrypoints/
     popup/            Popup with the "Open wallet" button.
-    wallet/           Full-page UI (onboarding, vault, balance, send).
+    wallet/           Full-page UI shell and state machine (App.tsx).
+      screens/        One component per screen (welcome, reveal, review, ...).
     background.ts     Background service worker.
+  components/         Shared UI (Button, Field, AddressText, Guilloche, ...).
+  assets/styles/      Design tokens and base styles.
   lib/wallet/
     account.ts        Phrase generation, checksum validation, address derivation.
     confirm.ts        Random confirmation-word selection and answer checking.
@@ -94,12 +123,14 @@ extension/
     storage.ts        chrome.storage wrappers for the vault and session.
     network.ts        Sepolia chain ID, RPC client, and balance lookup.
     send.ts           Recipient/amount parsing, review building, and signing.
+    input.ts          Recovery-phrase input normalization.
     account.test.ts   Tests for phrase generation and derivation.
     confirm.test.ts   Tests for confirmation-word selection and checking.
     vault.test.ts     Tests for encryption, decryption, and parsing.
     storage.test.ts   Tests for the storage wrappers.
     network.test.ts   Tests for the Sepolia chain-ID check.
     send.test.ts      Tests for parsing, review math, and signing.
+    input.test.ts     Tests for phrase input normalization.
   vitest.config.ts    Vitest config (WXT plugin with a fake browser API).
   wxt.config.ts       WXT and manifest configuration.
   package.json        Scripts and dependencies.

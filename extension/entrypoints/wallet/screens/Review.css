@@ -1,0 +1,169 @@
+.cheque {
+  position: relative;
+  padding: var(--space-6);
+  background: var(--paper);
+  color: var(--paper-ink);
+  border: 1px solid var(--intaglio-strong);
+  border-radius: var(--radius-cheque);
+}
+
+.cheque-frame {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: var(--radius-cheque);
+  overflow: hidden;
+}
+
+.cheque-band {
+  position: absolute;
+  color: var(--intaglio);
+}
+
+.cheque-band--top {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 14px;
+}
+
+.cheque-band--bottom {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 14px;
+}
+
+.cheque-band--left {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 14px;
+}
+
+.cheque-band--right {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 14px;
+}
+
+.cheque-body {
+  position: relative;
+}
+
+.cheque-from {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cheque-from-label {
+  font-size: var(--fs-13);
+  color: var(--intaglio-strong);
+}
+
+.cheque-from-addr {
+  font-size: var(--fs-13);
+}
+
+.cheque-memo {
+  margin: var(--space-4) 0 0;
+  font-size: var(--fs-21);
+  line-height: 1.4;
+  color: var(--paper-ink);
+}
+
+.cheque-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: var(--space-5);
+  margin: var(--space-5) 0 var(--space-4);
+}
+
+.cheque-field {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--intaglio-strong);
+}
+
+.cheque-field--wide {
+  grid-column: 1 / -1;
+}
+
+.cheque-field dt {
+  margin-bottom: var(--space-1);
+  font-size: var(--fs-13);
+  color: var(--intaglio-strong);
+}
+
+.cheque-field dd {
+  margin: 0;
+  font-size: var(--fs-17);
+  color: var(--paper-ink);
+}
+
+.cheque-field--total dd {
+  font-size: var(--fs-21);
+  font-weight: 600;
+}
+
+.cheque-fields .addr {
+  word-break: break-word;
+}
+
+.cheque-sign {
+  margin-top: var(--space-5);
+}
+
+.signature-input {
+  width: 100%;
+  padding: var(--space-2) 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px solid var(--paper-ink);
+  border-radius: 0;
+  font-size: var(--fs-17);
+  color: var(--paper-ink);
+}
+
+.signature-input:focus-visible {
+  outline: 2px solid var(--intaglio-strong);
+  outline-offset: 2px;
+}
+
+.signature-label {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: var(--fs-13);
+  color: var(--intaglio-strong);
+}
+
+.cheque-sign .notice {
+  margin-top: var(--space-4);
+}
+
+.cheque-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+@media (max-width: 480px) {
+  .cheque {
+    padding: var(--space-5) var(--space-4);
+  }
+
+  .cheque-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .cheque-field--wide {
+    grid-column: auto;
+  }
+
+  .cheque-memo {
+    font-size: var(--fs-17);
+  }
+}

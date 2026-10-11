@@ -132,6 +132,11 @@ The meaningful boundary is between the extension and web pages.
   request, and the user's IP address.
 - `chrome.storage.session` defaults to the `TRUSTED_CONTEXTS` access level, so
   the unlocked flag it holds is not reachable from content scripts or web pages.
+- Every font and every icon is bundled inside the extension. There are no remote
+  stylesheets, scripts, or images: the fonts are packaged from the local
+  `@fontsource` packages and the icons are inline SVG. Loading the UI makes no
+  request for assets, so the only network traffic is the Sepolia RPC calls
+  described below.
 
 Pages outside the extension origin cannot reach the extension's DOM or its
 in-memory state directly.
@@ -266,12 +271,13 @@ permission, which Nerafi deliberately does not request; the trade-off is noted i
 ### Restore flow
 
 Restoring from a recovery phrase is available from the welcome screen and from
-the locked screen ("Forgot password?"). The entered phrase is trimmed,
-lowercased, and collapsed to single spaces, then validated. If a vault already
-exists, Nerafi warns that restoring replaces the saved wallet and requires a
-confirmation checkbox before proceeding. The restored phrase then goes through
-the same set-password and encryption flow as a newly created wallet, producing a
-new salt, IV, and ciphertext.
+the locked screen ("Forgot password?"). The entered phrase is lowercased, split
+on whitespace, has any leading list markers (such as `1.`, `2)`, or `#3`) and
+number-only tokens stripped, collapsed to single spaces, then validated. If a
+vault already exists, Nerafi warns that restoring replaces the saved wallet and
+requires a confirmation checkbox before proceeding. The restored phrase then goes
+through the same set-password and encryption flow as a newly created wallet,
+producing a new salt, IV, and ciphertext.
 
 ### Why PBKDF2 and not scrypt or Argon2
 

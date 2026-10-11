@@ -1,0 +1,44 @@
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--input-border);
+  border-radius: 50%;
+  font-size: var(--fs-13);
+  font-variant-numeric: tabular-nums;
+}
+
+.step--current {
+  color: var(--text);
+}
+
+.step--current .step-index {
+  background: var(--foil);
+  border-color: var(--foil);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.step--done .step-index {
+  border-color: var(--intaglio-bright);
+  color: var(--intaglio-bright);
+}

@@ -18,6 +18,17 @@
 
 We use `@scure/bip39` directly for phrase validation; viem uses it internally for generation and derivation. Our version is pinned to match viem's (currently 1.6.0) so a single copy handles all phrase operations. When upgrading viem, check `npm ls @scure/bip39` and match the version.
 
+## Two font packages added for the local typeface
+
+**Accepted dependency.** The UI uses IBM Plex Sans and IBM Plex Mono, added as
+the `@fontsource/ibm-plex-sans` and `@fontsource/ibm-plex-mono` packages. Only
+the latin-subset weights are imported (sans 400/500/600, mono 400/500), and
+Fontsource bundles the font files locally, so the extension never requests a
+webfont from Google Fonts or any CDN at render time. The files are emitted into
+`.output/chrome-mv3/assets/` at build time and are covered by the same CSP as
+the rest of the bundled code. These are the only runtime dependencies added for
+the visual work; the icons are inline SVG with no image files.
+
 ## Address stored unencrypted in storage.local
 
 **Accepted by design.** The wallet address is saved as plain text under `chrome.storage.local["nerafi.address"]`, next to the encrypted vault. This lets the locked screen show which wallet is stored before the password is entered. The address is public on-chain, so it is not secret; the recovery phrase remains encrypted. Anyone with read access to the extension's local storage can see the address, but not the phrase or the private key. The stored address is only a display hint for the locked screen; after unlock the address is always re-derived from the decrypted phrase and the stored copy is corrected if it differs, so a tampered address cannot survive an unlock.

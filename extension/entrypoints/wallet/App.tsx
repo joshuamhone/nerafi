@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { formatEther, isAddress } from 'viem';
+import { isAddress } from 'viem';
 import type { Hex } from 'viem';
 import { createMnemonic, deriveAddress, isValidMnemonic } from '../../lib/wallet/account';
 import { checkConfirmation, pickConfirmationIndices } from '../../lib/wallet/confirm';
@@ -22,19 +22,32 @@ import {
 import {
   assertSepolia,
   createSepoliaClient,
-  EXPLORER_TX_URL,
   getBalanceWei,
   NetworkError,
-  SEPOLIA_CHAIN_ID,
 } from '../../lib/wallet/network';
 import {
   buildReview,
-  explainReview,
   parseAmount,
   parseRecipient,
   submitTransfer,
 } from '../../lib/wallet/send';
 import type { Review } from '../../lib/wallet/send';
+import { normalizePhraseInput } from '../../lib/wallet/input';
+import { TopBar } from '../../components/TopBar';
+import type { LockState } from '../../components/TopBar';
+import { Loading } from './screens/Loading';
+import { Welcome } from './screens/Welcome';
+import { Reveal } from './screens/Reveal';
+import { Confirm } from './screens/Confirm';
+import { SetPassword } from './screens/SetPassword';
+import { Restore } from './screens/Restore';
+import { Locked } from './screens/Locked';
+import { Unlocked } from './screens/Unlocked';
+import { Send } from './screens/Send';
+import type { SendErrorField } from './screens/Send';
+import { ReviewScreen } from './screens/Review';
+import { Sent } from './screens/Sent';
+import './App.css';
 
 type Step =
   | 'loading'
@@ -49,21 +62,26 @@ type Step =
   | 'review'
   | 'sent';
 
+type Flow = 'create' | 'restore' | null;
 type TxStatus = 'pending' | 'confirmed' | 'failed' | 'timeout';
 
 const CONFIRM_COUNT = 3;
-
-function normalizePhrase(input: string): string {
-  return input.trim().toLowerCase().split(/\s+/).join(' ');
-}
+const UNLOCKED_STEPS: Step[] = ['unlocked', 'send', 'review', 'sent'];
 
 function sendFailureMessage(err: unknown): string {
   if (err instanceof NetworkError) return err.message;
   return 'Could not send the transaction. Nothing was signed if the network check failed.';
 }
 
+function lockStateFor(step: Step): LockState {
+  if (step === 'locked') return 'locked';
+  if (UNLOCKED_STEPS.includes(step)) return 'unlocked';
+  return 'none';
+}
+
 function App() {
   const [step, setStep] = useState<Step>('loading');
+  const [flow, setFlow] = useState<Flow>(null);
   const [words, setWords] = useState<string[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [indices, setIndices] = useState<number[]>([]);
@@ -84,7 +102,9 @@ function App() {
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [sendError, setSendError] = useState('');
+  const [sendErrorField, setSendErrorField] = useState<SendErrorField>('');
   const [review, setReview] = useState<Review | null>(null);
+  const [reviewError, setReviewError] = useState('');
   const [sendPassword, setSendPassword] = useState('');
   const [txHash, setTxHash] = useState<Hex | null>(null);
   const [txStatus, setTxStatus] = useState<TxStatus>('pending');
@@ -178,6 +198,7 @@ function App() {
   }, [step, txHash]);
 
   function startCreate() {
+    setFlow('create');
     setWords(createMnemonic().split(' '));
     setRevealed(false);
     setError('');
@@ -215,6 +236,7 @@ function App() {
   }
 
   function startRestore() {
+    setFlow('restore');
     setRestoreInput('');
     setRestoreConfirmed(false);
     setError('');
@@ -224,7 +246,7 @@ function App() {
   function submitRestore(event: FormEvent) {
     event.preventDefault();
     setError('');
-    const phrase = normalizePhrase(restoreInput);
+    const phrase = normalizePhraseInput(restoreInput);
     if (!isValidMnemonic(phrase)) {
       setError('That recovery phrase is not valid. Check the words and try again.');
       return;
@@ -264,6 +286,7 @@ function App() {
       setPassword('');
       setConfirmPassword('');
       setError('');
+      setFlow(null);
       setStep('unlocked');
     } catch {
       setError('Could not save the wallet. Please try again.');
@@ -317,6 +340,10 @@ function App() {
     setBusy(true);
     try {
       await lock();
+      setSendPassword('');
+      setPassword('');
+      setReviewError('');
+      setReview(null);
       setError('');
       setStep('locked');
     } finally {
@@ -328,25 +355,38 @@ function App() {
     setRecipient('');
     setAmount('');
     setSendError('');
+    setSendErrorField('');
     setReview(null);
     setStep('send');
+  }
+
+  function cancelSend() {
+    setSendPassword('');
+    setSendError('');
+    setSendErrorField('');
+    setReviewError('');
+    setStep('unlocked');
   }
 
   async function submitSend(event: FormEvent) {
     event.preventDefault();
     setSendError('');
+    setSendErrorField('');
     const recipientResult = parseRecipient(recipient, address);
     if (!recipientResult.ok) {
       setSendError(recipientResult.error);
+      setSendErrorField('recipient');
       return;
     }
     const amountResult = parseAmount(amount);
     if (!amountResult.ok) {
       setSendError(amountResult.error);
+      setSendErrorField('amount');
       return;
     }
     if (!isAddress(address)) {
       setSendError('Could not reach the Sepolia network.');
+      setSendErrorField('form');
       return;
     }
     const from = address;
@@ -358,6 +398,7 @@ function App() {
       if (balanceWei < amountResult.wei) {
         setBalance(balanceWei);
         setSendError('Insufficient test ETH for this amount.');
+        setSendErrorField('amount');
         return;
       }
       const gas = await client.estimateGas({
@@ -378,6 +419,7 @@ function App() {
       });
       setBalance(balanceWei);
       setReview(built);
+      setReviewError('');
       setStep('review');
     } catch (err) {
       setSendError(
@@ -385,6 +427,7 @@ function App() {
           ? err.message
           : 'Could not prepare the transaction. Check your connection and the details, then try again.',
       );
+      setSendErrorField('form');
     } finally {
       setBusy(false);
     }
@@ -393,12 +436,12 @@ function App() {
   async function confirmSend(event: FormEvent) {
     event.preventDefault();
     if (review === null) return;
-    setSendError('');
+    setReviewError('');
     setBusy(true);
     try {
       const loaded = await loadVault();
       if (loaded === null) {
-        setSendError('Unsupported or damaged vault');
+        setReviewError('Unsupported or damaged vault');
         return;
       }
       const phrase = await decryptPhrase(loaded.vault, sendPassword);
@@ -407,7 +450,7 @@ function App() {
       setTxStatus('pending');
       setStep('sent');
     } catch (err) {
-      setSendError(err instanceof VaultError ? err.message : sendFailureMessage(err));
+      setReviewError(err instanceof VaultError ? err.message : sendFailureMessage(err));
     } finally {
       setSendPassword('');
       setBusy(false);
@@ -415,369 +458,129 @@ function App() {
   }
 
   return (
-    <main>
-      <h1>Nerafi Wallet</h1>
-      <p>Testnet only. Not for real funds.</p>
+    <div className="app">
+      <TopBar lockState={lockStateFor(step)} onLock={() => void handleLock()} busy={busy} />
 
-      {step === 'loading' && <p>Loading…</p>}
+      <main className="main">
+        {step === 'loading' && <Loading />}
 
-      {step === 'welcome' && (
-        <section>
-          <h2>Create or restore a wallet</h2>
-          <button onClick={startCreate}>Create new wallet</button>{' '}
-          <button onClick={startRestore}>Restore from recovery phrase</button>
-        </section>
-      )}
+        {step === 'welcome' && <Welcome onCreate={startCreate} onRestore={startRestore} />}
 
-      {step === 'reveal' && (
-        <section>
-          <h2>Your recovery phrase</h2>
-          <p>
-            Write these 12 words on paper, in order. Anyone who sees them
-            controls this wallet. Never share them, and never store them on
-            this computer.
-          </p>
+        {step === 'reveal' && (
+          <Reveal
+            words={words}
+            revealed={revealed}
+            onReveal={() => setRevealed(true)}
+            onContinue={startConfirm}
+          />
+        )}
 
-          {revealed ? (
-            <ol>
-              {words.map((word, i) => (
-                <li key={i}>{word}</li>
-              ))}
-            </ol>
-          ) : (
-            <button onClick={() => setRevealed(true)}>Reveal phrase</button>
-          )}
+        {step === 'confirm' && (
+          <Confirm
+            indices={indices}
+            answers={answers}
+            error={error}
+            onAnswer={updateAnswer}
+            onSubmit={submitConfirmation}
+            onBack={backToPhrase}
+          />
+        )}
 
-          <button disabled={!revealed} onClick={startConfirm}>
-            I've written it down
-          </button>
-        </section>
-      )}
+        {step === 'set-password' && (
+          <SetPassword
+            flow={flow}
+            password={password}
+            confirmPassword={confirmPassword}
+            error={error}
+            busy={busy}
+            onPassword={setPassword}
+            onConfirmPassword={setConfirmPassword}
+            onSubmit={submitPassword}
+          />
+        )}
 
-      {step === 'confirm' && (
-        <section>
-          <h2>Confirm your backup</h2>
-          <p>Enter these words from your written copy.</p>
+        {step === 'restore' && (
+          <Restore
+            vaultExists={vaultExists}
+            value={restoreInput}
+            confirmed={restoreConfirmed}
+            error={error}
+            busy={busy}
+            onValue={setRestoreInput}
+            onToggleConfirmed={setRestoreConfirmed}
+            onSubmit={submitRestore}
+          />
+        )}
 
-          {indices.map((index, n) => (
-            <p key={index}>
-              <label>
-                Word #{index + 1}{' '}
-                <input
-                  type="text"
-                  value={answers[n] ?? ''}
-                  onChange={(e) => updateAnswer(n, e.target.value)}
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                />
-              </label>
-            </p>
-          ))}
+        {step === 'locked' && (
+          <Locked
+            address={address}
+            password={password}
+            error={error}
+            busy={busy}
+            onPassword={setPassword}
+            onSubmit={submitUnlock}
+            onRestore={startRestore}
+          />
+        )}
 
-          {error && <p role="alert">{error}</p>}
+        {step === 'unlocked' && (
+          <Unlocked
+            address={address}
+            addressCorrected={addressCorrected}
+            balance={balance}
+            balanceLoading={balanceLoading}
+            balanceError={balanceError}
+            onRefresh={() => void refreshBalance()}
+            onSend={startSend}
+          />
+        )}
 
-          <button onClick={submitConfirmation}>Confirm</button>{' '}
-          <button onClick={backToPhrase}>Back to phrase</button>
-        </section>
-      )}
+        {step === 'send' && (
+          <Send
+            address={address}
+            recipient={recipient}
+            amount={amount}
+            error={sendError}
+            errorField={sendErrorField}
+            busy={busy}
+            onRecipient={setRecipient}
+            onAmount={setAmount}
+            onSubmit={submitSend}
+            onCancel={cancelSend}
+          />
+        )}
 
-      {step === 'set-password' && (
-        <section>
-          <h2>Set a password</h2>
-          <p>
-            This password encrypts your recovery phrase on this computer. You
-            will need it to unlock the wallet.
-          </p>
+        {step === 'review' && review !== null && (
+          <ReviewScreen
+            review={review}
+            address={address}
+            password={sendPassword}
+            error={reviewError}
+            busy={busy}
+            onPassword={setSendPassword}
+            onSubmit={confirmSend}
+            onCancel={cancelSend}
+          />
+        )}
 
-          <form onSubmit={submitPassword}>
-            <p>
-              <label>
-                Password{' '}
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="new-password"
-                />
-              </label>
-            </p>
-            <p>
-              <label>
-                Confirm password{' '}
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  autoComplete="new-password"
-                />
-              </label>
-            </p>
-
-            {error && <p role="alert">{error}</p>}
-
-            <button type="submit" disabled={busy}>
-              Save wallet
-            </button>
-          </form>
-        </section>
-      )}
-
-      {step === 'restore' && (
-        <section>
-          <h2>Restore from recovery phrase</h2>
-
-          {vaultExists && (
-            <p role="alert">
-              Restoring replaces the wallet saved in Nerafi. Make sure you have
-              the current wallet's recovery phrase first.
-            </p>
-          )}
-
-          <form onSubmit={submitRestore}>
-            <p>
-              <label>
-                Recovery phrase
-                <textarea
-                  value={restoreInput}
-                  onChange={(e) => setRestoreInput(e.target.value)}
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                />
-              </label>
-            </p>
-
-            {vaultExists && (
-              <p>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={restoreConfirmed}
-                    onChange={(e) => setRestoreConfirmed(e.target.checked)}
-                  />{' '}
-                  I understand this replaces the wallet saved in Nerafi.
-                </label>
-              </p>
-            )}
-
-            {error && <p role="alert">{error}</p>}
-
-            <button type="submit" disabled={busy || (vaultExists && !restoreConfirmed)}>
-              Continue
-            </button>
-          </form>
-        </section>
-      )}
-
-      {step === 'locked' && (
-        <section>
-          <h2>Wallet locked</h2>
-          <p>Saved address:</p>
-          <code>{address}</code>
-
-          <form onSubmit={submitUnlock}>
-            <p>
-              <label>
-                Password{' '}
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
-              </label>
-            </p>
-
-            {error && <p role="alert">{error}</p>}
-
-            <button type="submit" disabled={busy}>
-              Unlock
-            </button>
-          </form>
-
-          <button onClick={startRestore}>Forgot password? Restore from recovery phrase</button>
-        </section>
-      )}
-
-      {step === 'unlocked' && (
-        <section>
-          <h2>Wallet unlocked</h2>
-          <p>Your address:</p>
-          <code>{address}</code>
-          {addressCorrected && (
-            <p role="alert">
-              The saved address did not match your recovery phrase and has been corrected. If you
-              did not expect this, your browser profile may have been tampered with.
-            </p>
-          )}
-
-          <p>
-            Balance:{' '}
-            {balance !== null
-              ? `${formatEther(balance)} test ETH`
-              : balanceLoading
-                ? 'Loading…'
-                : '—'}
-          </p>
-          {balanceError && <p role="alert">{balanceError}</p>}
-
-          <p>
-            <button onClick={() => void refreshBalance()} disabled={balanceLoading || busy}>
-              Refresh
-            </button>{' '}
-            <button onClick={startSend} disabled={busy}>
-              Send
-            </button>
-          </p>
-
-          <p>Auto-locks 15 minutes after unlocking.</p>
-          <button onClick={handleLock} disabled={busy}>
-            Lock
-          </button>
-        </section>
-      )}
-
-      {step === 'send' && (
-        <section>
-          <h2>Send test ETH</h2>
-          <form onSubmit={submitSend}>
-            <p>
-              <label>
-                Recipient address{' '}
-                <input
-                  type="text"
-                  value={recipient}
-                  onChange={(e) => setRecipient(e.target.value)}
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                />
-              </label>
-            </p>
-            <p>
-              <label>
-                Amount (test ETH){' '}
-                <input
-                  type="text"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                />
-              </label>
-            </p>
-
-            {sendError && <p role="alert">{sendError}</p>}
-
-            <button type="submit" disabled={busy}>
-              Review
-            </button>{' '}
-            <button type="button" onClick={() => setStep('unlocked')} disabled={busy}>
-              Cancel
-            </button>
-          </form>
-        </section>
-      )}
-
-      {step === 'review' && review !== null && (
-        <section>
-          <h2>Review your transaction</h2>
-          <p>{explainReview(review)}</p>
-
-          <dl>
-            <dt>From</dt>
-            <dd>
-              <code>{review.from}</code>
-            </dd>
-            <dt>To</dt>
-            <dd>
-              <code>{review.to}</code>
-            </dd>
-            <dt>Amount</dt>
-            <dd>{formatEther(review.valueWei)} test ETH</dd>
-            <dt>Max network fee</dt>
-            <dd>{formatEther(review.maxFeeWei)} test ETH</dd>
-            <dt>Total (maximum)</dt>
-            <dd>{formatEther(review.totalMaxWei)} test ETH</dd>
-            <dt>Network</dt>
-            <dd>Sepolia testnet (chain ID {SEPOLIA_CHAIN_ID})</dd>
-          </dl>
-
-          {review.to.toLowerCase() === address.toLowerCase() && (
-            <p role="alert">You are sending to your own address.</p>
-          )}
-
-          {!review.sufficient && (
-            <p role="alert">Insufficient test ETH for this amount plus the maximum fee.</p>
-          )}
-
-          <form onSubmit={confirmSend}>
-            <p>
-              <label>
-                Password{' '}
-                <input
-                  type="password"
-                  value={sendPassword}
-                  onChange={(e) => setSendPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
-              </label>
-            </p>
-
-            {sendError && <p role="alert">{sendError}</p>}
-
-            <button type="submit" disabled={busy || !review.sufficient}>
-              Confirm and send
-            </button>{' '}
-            <button
-              type="button"
-              onClick={() => {
-                setSendPassword('');
-                setSendError('');
-                setStep('unlocked');
-              }}
-              disabled={busy}
-            >
-              Cancel
-            </button>
-          </form>
-        </section>
-      )}
-
-      {step === 'sent' && txHash !== null && (
-        <section>
-          <h2>Transaction sent</h2>
-          <p>Transaction hash:</p>
-          <code>{txHash}</code>
-          <p>
-            <a href={`${EXPLORER_TX_URL}${txHash}`} target="_blank" rel="noopener noreferrer">
-              View on Sepolia Etherscan
-            </a>
-          </p>
-          <p>
-            Status:{' '}
-            {txStatus === 'pending' && 'Pending'}
-            {txStatus === 'confirmed' && 'Confirmed'}
-            {txStatus === 'failed' && 'Failed'}
-            {txStatus === 'timeout' && 'Still pending — check Etherscan'}
-          </p>
-          <button
-            onClick={() => {
+        {step === 'sent' && txHash !== null && (
+          <Sent
+            hash={txHash}
+            to={review?.to ?? ''}
+            amountWei={review?.valueWei ?? 0n}
+            status={txStatus}
+            error={reviewError}
+            onBack={() => {
               setStep('unlocked');
               void refreshBalance();
             }}
-          >
-            Back to wallet
-          </button>
-        </section>
-      )}
-    </main>
+          />
+        )}
+      </main>
+
+      <footer className="testnet-notice">Testnet only. Not for real funds.</footer>
+    </div>
   );
 }
 

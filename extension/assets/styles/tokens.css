@@ -1,0 +1,61 @@
+/*
+ * Nerafi design tokens.
+ * Values are measured against WCAG 2.x - do not substitute.
+ * Each token also lists its permitted role; use it only for that role.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Core palette (unchanged). */
+  --ink: #172124; /* app background */
+  --surface: #1f2b2e; /* panels */
+  --surface-raised: #26353a; /* inputs, hover */
+  --line: #34474b; /* decorative dividers only */
+  --text: #e9eee8; /* primary text on dark */
+  --text-muted: #9aa9a3; /* muted text on dark */
+  --paper: #dce3da; /* cheque surface only */
+  --paper-ink: #1b2a28; /* text on paper */
+  --intaglio: #3f6e6a; /* DECORATIVE ONLY: guilloche lines, seal engraving */
+  --foil: #d4b055; /* primary buttons only */
+
+  /* Role-restricted additions. */
+  --intaglio-strong: #2f5753; /* text + alternating address chunks ON PAPER (6.15:1) */
+  --intaglio-bright: #76aaa5; /* focus rings, met state, pending dot, teal text ON DARK */
+  --alert: #ee7a8e; /* error/warning text + borders ON DARK */
+  --alert-paper: #a82c45; /* error/warning text + borders ON PAPER */
+  --input-border: #6a8287; /* borders of all inputs ON DARK */
+
+  /* Radii. */
+  --radius-input: 6px;
+  --radius-panel: 10px;
+  --radius-cheque: 2px;
+
+  /* Spacing scale. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Type scale. */
+  --fs-13: 13px;
+  --fs-15: 15px;
+  --fs-17: 17px;
+  --fs-21: 21px;
+  --fs-28: 28px;
+  --fs-40: 40px;
+
+  /* Fonts (bundled locally, latin subset only). */
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Focus ring colour, switched by surface context below. */
+  --focus-ring: var(--intaglio-bright);
+}
+
+/* On paper, focus rings use the paper-safe strong teal. */
+.on-paper {
+  --focus-ring: var(--intaglio-strong);
+}

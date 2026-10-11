@@ -1,0 +1,17 @@
+.guilloche {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* --intaglio is decorative only: engraved lines, never text or focus. */
+.guilloche path {
+  fill: none;
+  stroke: var(--intaglio);
+  stroke-width: 0.5;
+  opacity: 0.4;
+}
+
+.guilloche--ring path {
+  opacity: 0.5;
+}
