@@ -9,7 +9,8 @@ of the current design, not a guarantee.
 
 Milestone 1 covers wallet creation and recovery-phrase onboarding. Milestone 2
 adds a password-encrypted vault that persists the wallet on the local machine
-and can be locked and unlocked.
+and can be locked and unlocked. Milestone 3 adds Sepolia balance display and
+sending test ETH.
 
 What Nerafi does today:
 
@@ -19,16 +20,25 @@ What Nerafi does today:
 - Asks the user to confirm three randomly chosen words from their written copy.
 - Encrypts the phrase with a password and saves the encrypted vault, plus the
   public address, in `chrome.storage.local`.
-- Holds the unlocked phrase in `chrome.storage.session` (in memory only) so the
-  wallet can stay open while unlocked, and clears it on lock, on browser close,
-  and when its 15-minute auto-lock window has passed.
+- Holds only the unlocked address and an expiry time in `chrome.storage.session`
+  (in memory only) so the wallet can stay open while unlocked, and clears it on
+  lock, on browser close, and when its 15-minute auto-lock window has passed.
+- Reads the wallet's Sepolia balance from one public RPC endpoint.
+- Explains a transfer in plain English before signing it.
+- Signs and sends a test-ETH transfer on Sepolia, after the password is entered
+  again.
 
 What Nerafi does not do:
 
-- It does not access the network. There is no RPC call, no balance lookup, and
-  no chain interaction.
-- It does not sign or send anything. There is no signing code and no private key
-  handling beyond deriving the address.
+- It does not connect to any network other than the single Sepolia RPC endpoint
+  described in "Sending test ETH" below.
+- It does not sign or send on any chain other than Sepolia. Signing is refused if
+  the RPC reports any other chain ID.
+- It does not sign anything without a review and a password re-entry.
+- It does not store the recovery phrase in session storage. While unlocked, the
+  session holds only the address and an expiry time; the phrase is decrypted only
+  during unlock and during signing.
+- It does not run in the background; it acts only in response to the user.
 
 ## Standards and libraries
 
@@ -115,9 +125,13 @@ The meaningful boundary is between the extension and web pages.
   no standing access to any website. Opening the wallet tab uses
   `browser.tabs.create` with an extension-internal URL, which needs no
   permission.
+- Nerafi makes network requests, but only to the single Sepolia RPC endpoint
+  described below. It still requests no host permissions: the calls work from the
+  extension page because the endpoint allows cross-origin requests. The RPC
+  operator is a third party and sees the wallet address, the contents of each
+  request, and the user's IP address.
 - `chrome.storage.session` defaults to the `TRUSTED_CONTEXTS` access level, so
-  the unlocked phrase it holds is not reachable from content scripts or web
-  pages.
+  the unlocked flag it holds is not reachable from content scripts or web pages.
 
 Pages outside the extension origin cannot reach the extension's DOM or its
 in-memory state directly.
@@ -148,10 +162,11 @@ that works.
   unlock the address is always re-derived from the decrypted phrase, and the
   stored copy is overwritten if it differs, so a tampered address cannot survive
   an unlock.
-- `chrome.storage.session["nerafi.session"]` holds the unlocked recovery phrase
-  and an expiry timestamp. Session storage is in memory, is cleared when the
-  browser closes, and is not exposed to content scripts or web pages. Nothing
-  enters `localStorage`, `sessionStorage`, or IndexedDB.
+- `chrome.storage.session["nerafi.session"]` holds only the unlocked address and
+  an expiry timestamp. It never holds the recovery phrase. Session storage is in
+  memory, is cleared when the browser closes, and is not exposed to content
+  scripts or web pages. Nothing enters `localStorage`, `sessionStorage`, or
+  IndexedDB.
 
 The recovery phrase is never written to `chrome.storage.local` in plain text;
 only the ciphertext is.
@@ -214,11 +229,16 @@ Before the phrase is encrypted, the password is checked and normalized:
 
 ### Session and unlock design
 
-- After a successful unlock, the phrase is written to
-  `chrome.storage.session` with an expiry timestamp of 15 minutes in the future.
-- The wallet page reads that session to decide whether it is unlocked. The
-  unlocked screen itself does **not** keep the phrase in React state; it only
-  displays the address.
+- While unlocked, `chrome.storage.session` holds only the wallet address and an
+  expiry timestamp 15 minutes in the future. The recovery phrase is never written
+  to the session.
+- The phrase is decrypted from the vault at exactly two moments: during unlock
+  (to verify the password and derive the address) and during signing. Each time
+  it is a local variable for the duration of that operation and is not kept
+  afterwards. The JavaScript memory caveat applies during those windows (see
+  "Known limitations").
+- The wallet page reads the session address to decide whether it is unlocked. The
+  unlocked screen itself does **not** keep the phrase.
 - Pressing "Lock" removes the session entry immediately.
 
 ### Auto-lock
@@ -226,9 +246,11 @@ Before the phrase is encrypted, the password is checked and normalized:
 The auto-lock window is **15 minutes** (see `AUTO_LOCK_MS`). Expiry is enforced
 whenever the unlocked state is read: if the current time is at or past the
 expiry, the session entry is removed and treated as locked. The wallet page also
-re-checks once every 30 seconds while the unlocked screen is open. A precise
-timer would need the `alarms` permission, which Nerafi deliberately does not
-request; the trade-off is noted in `KNOWN_ISSUES.md`.
+re-checks once every 30 seconds while the unlocked screen is open. If no page
+reads the session, the only thing that can outlive the window is the unlocked
+address and expiry, not the phrase. A precise timer would need the `alarms`
+permission, which Nerafi deliberately does not request; the trade-off is noted in
+`KNOWN_ISSUES.md`.
 
 ### Failure behavior
 
@@ -260,3 +282,60 @@ mean adding a third-party dependency. The hard constraint for this milestone is
 no new dependencies, so Nerafi uses PBKDF2, which is native to the platform and
 a standard, widely reviewed choice. The higher iteration count is the
 compensating control.
+
+## Sending test ETH (Milestone 3)
+
+Milestone 3 shows the Sepolia balance and lets the user send test ETH. This
+section describes how signing and sending work.
+
+### Sepolia only
+
+- The chain ID **11155111** (Sepolia) is hard-coded.
+- Immediately before **every** signing, Nerafi calls the RPC's `eth_chainId` and
+  refuses to sign if it is not 11155111.
+- Every signed transaction embeds `chainId: 11155111` (EIP-155 replay
+  protection). A signature produced for Sepolia is therefore not valid on
+  Ethereum mainnet, so it cannot be replayed there.
+
+### The RPC endpoint
+
+Nerafi uses one keyless public endpoint:
+`https://ethereum-sepolia-rpc.publicnode.com`. An API key would be pointless in a
+browser extension: anything bundled with the extension is readable by anyone who
+installs it, so the key would be public. The trade-off is privacy. The RPC
+operator sees the wallet address, the contents of each request (for example the
+balance lookup and the signed transaction), and the user's IP address.
+
+### What you approve is what you sign
+
+The review screen is built from one set of values. The exact recipient, value,
+gas limit, `maxFeePerGas`, and `maxPriorityFeePerGas` shown on the review screen
+are the values that get signed. Nothing is re-estimated between the review and
+the signature.
+
+### Password re-entry before every send
+
+Signing requires the password again, even when the wallet is already unlocked.
+An unlocked session holds only the address and an expiry time, so leaving the
+wallet open does not expose the phrase. A transaction cannot be signed and sent
+without the password, because the recovery phrase is decrypted from the vault
+only at the moment of signing and is not kept afterwards.
+
+### The key is derived only at signing time
+
+The private key is derived from the decrypted recovery phrase inside a single
+function, only after a send is confirmed, and it is not stored. The usual
+JavaScript caveat applies: the key and the phrase exist in memory during signing
+and cannot be reliably wiped afterwards.
+
+### Signing is local; only the signed transaction leaves
+
+Nerafi signs the transaction locally with viem. Only the signed transaction is
+sent to the RPC endpoint. The recovery phrase, the password, and the private key
+never leave the extension.
+
+### The fee shown is a maximum
+
+The review shows the maximum possible network fee, calculated as
+`gas limit × maxFeePerGas`. The actual fee is usually lower, because the network
+charges the base fee plus the priority fee that is actually needed.

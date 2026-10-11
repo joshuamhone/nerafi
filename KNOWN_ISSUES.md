@@ -26,10 +26,30 @@ We use `@scure/bip39` directly for phrase validation; viem uses it internally fo
 
 **Accepted by design.** Unlocking reports "Incorrect password or damaged vault" for both a wrong password and a corrupted vault. AES-GCM cannot distinguish a wrong key from altered data, so the two cases are merged.
 
-## Unlocked phrase lives in chrome.storage.session
+## Unlocked session holds only the address
 
-**Accepted, with mitigations.** While the wallet is unlocked, the recovery phrase is held in `chrome.storage.session` as `nerafi.session`. Session storage is in memory only, is cleared when the browser closes, and defaults to the `TRUSTED_CONTEXTS` access level, so content scripts and web pages cannot read it. It is still a copy of the phrase in extension memory for the duration of the unlock window.
+**Accepted, with mitigations.** While the wallet is unlocked, `chrome.storage.session` holds only the wallet address and an expiry timestamp. The recovery phrase was removed from the session once sending began requiring the password, because no feature needs the phrase in session storage. The phrase is now decrypted from the vault only at unlock (to verify the password and derive the address) and at signing, and is not kept afterwards. Session storage is in memory only, is cleared when the browser closes, and defaults to the `TRUSTED_CONTEXTS` access level, so content scripts and web pages cannot read it. What is exposed for the unlock window is the public address, which is on-chain data.
 
 ## Auto-lock is enforced on read, not by a timer
 
-**Accepted limitation.** The 15-minute auto-lock is checked whenever the unlocked state is read (`getUnlockedPhrase`), and the wallet page re-checks every 30 seconds while it is open. If no Nerafi page reads the session, the phrase can remain in `chrome.storage.session` past the 15-minute mark until the next read or until the browser closes. A precise timer would require the `alarms` permission, which was deliberately not added to keep the extension's permission list to exactly `storage`.
+**Accepted limitation.** The 15-minute auto-lock is checked whenever the unlocked state is read (`getUnlockedAddress`), and the wallet page re-checks every 30 seconds while it is open. If no Nerafi page reads the session, the unlocked flag and address can remain in `chrome.storage.session` past the 15-minute mark until the next read or until the browser closes. The recovery phrase is not in the session, so it cannot outlive the window; only the unlocked flag and address can. A precise timer would require the `alarms` permission, which was deliberately not added to keep the extension's permission list to exactly `storage`.
+
+## Public RPC operator sees the address, requests, and IP
+
+**Accepted limitation.** Balance lookups and sent transactions go to a single keyless public endpoint (`https://ethereum-sepolia-rpc.publicnode.com`). The operator of that endpoint sees the wallet address, the contents of each request (including the signed transaction), and the user's IP address. A keyed endpoint would not help: an API key bundled in a browser extension is readable by anyone who installs it. The alternative, running our own node, is out of scope for a portfolio project on Sepolia.
+
+## Public endpoint reliability is not guaranteed
+
+**Accepted limitation.** The public RPC endpoint is shared and offers no uptime guarantee. Balance lookups, fee estimation, and sending can fail if the endpoint is busy or down. When a request fails, the wallet shows a fixed "Could not reach the Sepolia network." message rather than raw RPC errors.
+
+## Fee estimates can go stale
+
+**Accepted limitation.** Fees are estimated during review and then signed as a maximum (`gas limit × maxFeePerGas`). If the network base fee rises sharply between review and inclusion, the transaction may confirm slowly, or not until the fee environment falls back. The wallet does not re-estimate before signing, because what the user reviewed is what gets signed.
+
+## No transaction history beyond the last send
+
+**Accepted limitation.** Nerafi keeps no list of past transactions. After a send it shows the hash, the Etherscan link, and the status of that one transaction. Looking up anything older means using an external explorer. Storing history would add state to `chrome.storage.local` and a source of stale data without a clear benefit for a testnet wallet.
+
+## Opening the Etherscan link shares data with Etherscan
+
+**Accepted, user-initiated.** The "View on Sepolia Etherscan" link opens `sepolia.etherscan.io` in a new tab. Following it reveals the transaction hash and the wallet address to Etherscan, which is what an explorer is for. The link is only followed when the user clicks it; Nerafi itself never contacts Etherscan.
