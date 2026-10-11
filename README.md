@@ -15,6 +15,9 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
   lock/unlock).
 - **Milestone 3 — complete:** Sepolia balance, plain-English transaction review,
   signing, and sending.
+- **Milestone 4 — complete:** app shell with sidebar navigation, overview and
+  receive pages, a locally rendered QR code, and one consistent way of showing
+  big-int numbers.
 
 ## Features
 
@@ -57,6 +60,23 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **One RPC endpoint.** Balance lookups and sends use a single keyless public
   Sepolia endpoint.
 
+**Milestone 4 — wallet shell, overview, and receive**
+
+- **Sidebar navigation.** The unlocked wallet uses sidebar navigation with
+  simple hash routes (`#/overview`, `#/send`, `#/receive`): a fixed sidebar at
+  wider widths, collapsing to a compact top bar below 900 px.
+- **Overview.** The opening page shows the balance (rounded down, see Display
+  numbers below), an address card, a live Sepolia network panel (chain ID,
+  latest block, RPC host), and a quiet loading skeleton while the RPC responds.
+- **Receive page.** Your address in chunked form, an inline QR code of the
+  EIP-681 URI `ethereum:<address>@11155111`, and a user-initiated copy button.
+- **Local QR generation.** The QR is rendered on the page with the
+  zero-dependency `qr` package — bundled locally, no network request, no API
+  key.
+- **Consistent numbers.** All display amounts go through one big-int formatter:
+  balances round down, limits round up ("at most"), and typed amounts are shown
+  in full.
+
 ## Design
 
 The wallet is styled like a security document. The one irreversible action —
@@ -74,6 +94,13 @@ and to keep everything being approved on one calm page.
   grouped into four-character chunks with the `0x` prefix separated, and
   alternating between two colours so that a changed character is easier to spot.
   A screen reader receives the plain, unbroken address instead.
+- **Numbers, never rounded silently.** Balances, limits, and amounts share one
+  big-int-only format module (`lib/wallet/format.ts`). Balances round down to
+  six decimals so the screen never claims more than you hold; fees and totals
+  round up to six decimals so "at most" never understates what can leave; the
+  amount you type keeps its full precision everywhere on the cheque and the
+  receipt. Each value's exact form is available in a hover tip and in the
+  review screen's "Exact values" details.
 - **Bundled fonts and icons.** IBM Plex Sans (UI) and IBM Plex Mono (addresses
   and hashes, with tabular numerals for amounts) are bundled locally through
   Fontsource; the icons are inline SVG. Nothing is fetched from a CDN, so the
@@ -112,7 +139,12 @@ extension/
   entrypoints/
     popup/            Popup with the "Open wallet" button.
     wallet/           Full-page UI shell and state machine (App.tsx).
-      screens/        One component per screen (welcome, reveal, review, ...).
+      screens/        Full-screen views (welcome, reveal, review, send, ...).
+      pages/          Shell pages: Overview and Receive.
+      shell/          Sidebar and the app-shell layout.
+      AuthLayout.tsx  Split brand/task layout for the onboarding screens.
+      context.tsx     Wallet state (balance, network) with refresh.
+      router.ts       Hash routes: overview, send, receive.
     background.ts     Background service worker.
   components/         Shared UI (Button, Field, AddressText, Guilloche, ...).
   assets/styles/      Design tokens and base styles.
@@ -123,6 +155,8 @@ extension/
     storage.ts        chrome.storage wrappers for the vault and session.
     network.ts        Sepolia chain ID, RPC client, and balance lookup.
     send.ts           Recipient/amount parsing, review building, and signing.
+    format.ts         Big-int formatting for display (down, up, exact).
+    receive.ts        Receive URI (EIP-681) construction.
     input.ts          Recovery-phrase input normalization.
     account.test.ts   Tests for phrase generation and derivation.
     confirm.test.ts   Tests for confirmation-word selection and checking.
@@ -130,6 +164,8 @@ extension/
     storage.test.ts   Tests for the storage wrappers.
     network.test.ts   Tests for the Sepolia chain-ID check.
     send.test.ts      Tests for parsing, review math, and signing.
+    format.test.ts    Tests for number formatting bounds and properties.
+    receive.test.ts   Tests for receive-URI construction.
     input.test.ts     Tests for phrase input normalization.
   vitest.config.ts    Vitest config (WXT plugin with a fake browser API).
   wxt.config.ts       WXT and manifest configuration.

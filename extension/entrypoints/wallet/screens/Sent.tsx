@@ -1,4 +1,4 @@
-import { formatEther } from 'viem';
+import { formatExact } from '../../../lib/wallet/format';
 import { AddressText } from '../../../components/AddressText';
 import { Button } from '../../../components/Button';
 import { Guilloche } from '../../../components/Guilloche';
@@ -50,7 +50,9 @@ export function Sent({ hash, to, amountWei, status, error, onBack }: SentProps) 
         </div>
         <div className="sent-row">
           <span className="sent-label">Amount</span>
-          <span className="tabular">{formatEther(amountWei)} test ETH</span>
+          <span className="tabular">
+            <span className="amount-unit">{formatExact(amountWei)} test ETH</span>
+          </span>
         </div>
         <div className="sent-row">
           <span className="sent-label">Transaction</span>

@@ -1,11 +1,10 @@
 import type { FormEvent } from 'react';
-import { formatEther } from 'viem';
 import { AddressText } from '../../../components/AddressText';
 import { Button } from '../../../components/Button';
 import { Guilloche } from '../../../components/Guilloche';
 import { Notice } from '../../../components/Notice';
+import { formatAtMost, formatExact } from '../../../lib/wallet/format';
 import { SEPOLIA_CHAIN_ID } from '../../../lib/wallet/network';
-import { explainReview } from '../../../lib/wallet/send';
 import type { Review } from '../../../lib/wallet/send';
 import './Review.css';
 
@@ -48,7 +47,10 @@ export function ReviewScreen({
             <AddressText value={review.from} onPaper className="cheque-from-addr" />
           </div>
 
-          <p className="cheque-memo">{explainReview(review)}</p>
+          <p className="cheque-memo">
+            You are sending {formatExact(review.valueWei)} test ETH to the address below. At most{' '}
+            {formatAtMost(review.totalMaxWei)} test ETH will leave your wallet.
+          </p>
 
           <dl className="cheque-fields">
             <div className="cheque-field cheque-field--wide">
@@ -60,17 +62,23 @@ export function ReviewScreen({
 
             <div className="cheque-field">
               <dt>Amount</dt>
-              <dd className="tabular">{formatEther(review.valueWei)} test ETH</dd>
+              <dd className="tabular">
+                <span className="amount-unit">{formatExact(review.valueWei)} test ETH</span>
+              </dd>
             </div>
 
             <div className="cheque-field">
               <dt>Max network fee</dt>
-              <dd className="tabular">{formatEther(review.maxFeeWei)} test ETH</dd>
+              <dd className="tabular" title={formatExact(review.maxFeeWei)}>
+                <span className="amount-unit">{formatAtMost(review.maxFeeWei)} test ETH</span>
+              </dd>
             </div>
 
             <div className="cheque-field cheque-field--total">
               <dt>Total, at most</dt>
-              <dd className="tabular">{formatEther(review.totalMaxWei)} test ETH</dd>
+              <dd className="tabular" title={formatExact(review.totalMaxWei)}>
+                <span className="amount-unit">{formatAtMost(review.totalMaxWei)} test ETH</span>
+              </dd>
             </div>
 
             <div className="cheque-field cheque-field--wide">
@@ -79,17 +87,37 @@ export function ReviewScreen({
             </div>
           </dl>
 
-          {selfSend && (
-            <Notice variant="alert" onPaper>
-              You are sending to your own address.
-            </Notice>
-          )}
+          <details className="cheque-exact">
+              <summary>Exact values</summary>
+              <dl className="cheque-exact-list">
+                <div>
+                  <dt>Amount</dt>
+                  <dd className="tabular">{formatExact(review.valueWei)} test ETH</dd>
+                </div>
+                <div>
+                  <dt>Max network fee</dt>
+                  <dd className="tabular">{formatExact(review.maxFeeWei)} test ETH</dd>
+                </div>
+                <div>
+                  <dt>Total will leave</dt>
+                  <dd className="tabular">{formatExact(review.totalMaxWei)} test ETH</dd>
+                </div>
+              </dl>
+            </details>
 
-          {!review.sufficient && (
-            <Notice variant="alert" onPaper>
-              Insufficient test ETH for this amount plus the maximum fee.
-            </Notice>
-          )}
+          <div className="cheque-notices">
+            {selfSend && (
+              <Notice variant="alert" onPaper>
+                You are sending to your own address.
+              </Notice>
+            )}
+
+            {!review.sufficient && (
+              <Notice variant="alert" onPaper>
+                Insufficient test ETH for this amount plus the maximum fee.
+              </Notice>
+            )}
+          </div>
 
           <form className="cheque-sign" onSubmit={onSubmit}>
             <input

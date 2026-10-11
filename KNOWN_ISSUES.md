@@ -61,6 +61,14 @@ the visual work; the icons are inline SVG with no image files.
 
 **Accepted limitation.** Nerafi keeps no list of past transactions. After a send it shows the hash, the Etherscan link, and the status of that one transaction. Looking up anything older means using an external explorer. Storing history would add state to `chrome.storage.local` and a source of stale data without a clear benefit for a testnet wallet.
 
+## QR code rendering uses the `qr` package (accepted dependency)
+
+**Accepted dependency.** The Receive page renders the wallet's address as a QR code with `qr` 0.7.2 (MIT OR Apache-2.0, `paulmillr/qr`). It has zero runtime dependencies: its helper package (`@paulmillr/jsbt`) is development-only, and the built extension bundles only the SVG output — the `dom.js` and `decode.js` entry points are never imported. The package declares `sideEffects: false`, so unused modules are tree-shaken. Rendering is fully local: no network request, no API key, no remote image. This is the only dependency added for receiving.
+
+## Address copy relies on the system clipboard
+
+**Accepted, user-initiated.** The Receive page can copy your public address to the clipboard, but only when you click "Copy address". The address is public on-chain, so unlike the recovery phrase nothing secret is written to the clipboard when other software reads it. Copying can fail (for example, when the wallet page does not have focus); in that case the page says to select the address manually.
+
 ## Opening the Etherscan link shares data with Etherscan
 
 **Accepted, user-initiated.** The "View on Sepolia Etherscan" link opens `sepolia.etherscan.io` in a new tab. Following it reveals the transaction hash and the wallet address to Etherscan, which is what an explorer is for. The link is only followed when the user clicks it; Nerafi itself never contacts Etherscan.
