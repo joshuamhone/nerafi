@@ -33,11 +33,12 @@ export function Receive() {
         <h1 className="page-title">Receive</h1>
       </header>
 
-      <Notice variant="info">
-        Nerafi only shows Sepolia. Anything sent on another network will not appear here.
-      </Notice>
+      <div className="receive-width">
+        <Notice variant="info">
+          Nerafi only shows Sepolia. Anything sent on another network will not appear here.
+        </Notice>
 
-      <div className="receive-card">
+        <div className="receive-card">
         <div
           className="receive-qr"
           role="img"
@@ -63,6 +64,7 @@ export function Receive() {
         {copyFailed && (
           <Notice variant="alert">Copy failed — select the address manually</Notice>
         )}
+        </div>
       </div>
     </section>
   );

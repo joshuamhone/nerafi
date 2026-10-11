@@ -1,0 +1,133 @@
+.activity-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.activity-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: fit-content;
+  padding: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+}
+
+.activity-filter-btn {
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-input) - 2px);
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.activity-filter-btn:hover {
+  color: var(--text);
+}
+
+.activity-filter-btn--active {
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.activity-search {
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-input);
+  color: var(--text);
+}
+
+.activity-search::placeholder {
+  color: var(--text-muted);
+}
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.activity-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+}
+
+.activity-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  list-style: none;
+}
+
+.activity-group-heading {
+  font-size: var(--fs-13);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.activity-group-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+}
+
+.activity-skeleton {
+  display: block;
+  height: 68px;
+  margin: var(--space-2) 0;
+  background: var(--surface-raised);
+  border-radius: var(--radius-panel);
+}
+
+.activity-empty {
+  font-size: var(--fs-15);
+  color: var(--text-muted);
+}
+
+.activity-skipped {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.activity-loadmore {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.activity-more-error {
+  font-size: var(--fs-13);
+  color: var(--alert);
+}
+
+.activity-footnote {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.activity-retry {
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--intaglio-bright);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}

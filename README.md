@@ -18,6 +18,10 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **Milestone 4 — complete:** app shell with sidebar navigation, overview and
   receive pages, a locally rendered QR code, and one consistent way of showing
   big-int numbers.
+- **Milestone 5 — complete:** activity history: an Activity page and a
+  transaction detail view fed by the public Blockscout explorer API, a
+  recent-activity panel on the Overview, and local sent records that show as
+  pending until the explorer indexes them.
 
 ## Features
 
@@ -77,6 +81,34 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
   balances round down, limits round up ("at most"), and typed amounts are shown
   in full.
 
+**Milestone 5 — activity history**
+
+- **Activity page.** Sent, received, and self transfers grouped by local day,
+  with a segmented filter (All / Sent / Received) and a search box that matches
+  hashes and addresses, case-insensitively.
+- **Transaction detail.** Every activity row links to a detail view showing the
+  hash, status, direction, full from/to addresses, the amount and network fee in
+  full precision, block, nonce, time (local and ISO), the data source, and a
+  Sepolia Etherscan link. A failed transaction's reason text from Blockscout is
+  shown, and a contract creation shows the created contract's address when
+  Blockscout returns one.
+- **Recent activity on the Overview.** The five newest transactions appear under
+  the address card, linking to the full Activity page.
+- **Blockscout as the data source.** History is read on demand from the public
+  `eth-sepolia.blockscout.com` API — no API key, and no standing permissions.
+  Status, labels and amounts come from Blockscout and are not independently
+  verified by Nerafi. Loading more is always user-initiated ("Load more"), never
+  automatic.
+- **Local sent records.** The last 50 sent transactions are mirrored on the
+  device (`nerafi.localTx`) and shown as "Pending" with "Sent from Nerafi · not
+  yet indexed by Blockscout" until Blockscout returns the same hash, which
+  deletes the local copy. After 30 minutes the note warns that the transaction
+  may have been dropped. The mirror exists only to cover the gap before
+  indexing.
+- **Never truncated addresses.** Every activity row and the detail view render
+  the full counterparty and transaction addresses with the same chunked display
+  used everywhere else, so a changed character stays easy to spot.
+
 ## Design
 
 The wallet is styled like a security document. The one irreversible action —
@@ -90,10 +122,21 @@ and to keep everything being approved on one calm page.
   signature line, labelled "Sign with your password", and the confirm button uses
   an ink-on-foil treatment. The guilloché lines are generated procedurally from
   deterministic sine/cosine maths, with no randomness, and are decorative only.
+- **The auth seal.** The onboarding brand seal is the same procedural guilloché,
+  drawn in a brighter engraved line, `--intaglio-light` (`#5A8A85`, 3.75:1 on
+  `--surface`). It is decorative only — never text or focus — and is scoped to
+  the onboarding layout, so the cheque and the sidebar logo keep the shared
+  guilloché treatment.
 - **Chunked addresses.** Addresses are always shown in full, never truncated,
   grouped into four-character chunks with the `0x` prefix separated, and
   alternating between two colours so that a changed character is easier to spot.
-  A screen reader receives the plain, unbroken address instead.
+  A screen reader receives the plain, unbroken address instead. This rule
+  applies everywhere, including compact activity rows.
+- **Activity comes from a public explorer.** History is read from
+  `eth-sepolia.blockscout.com` when the Activity page or the Overview asks for
+  it, so it can lag the network by a few seconds. The explorer is a third party
+  and its labels are untrusted, which is why the page calls out scam labels
+  without endorsing them.
 - **Numbers, never rounded silently.** Balances, limits, and amounts share one
   big-int-only format module (`lib/wallet/format.ts`). Balances round down to
   six decimals so the screen never claims more than you hold; fees and totals
@@ -140,11 +183,11 @@ extension/
     popup/            Popup with the "Open wallet" button.
     wallet/           Full-page UI shell and state machine (App.tsx).
       screens/        Full-screen views (welcome, reveal, review, send, ...).
-      pages/          Shell pages: Overview and Receive.
+      pages/          Shell pages: Overview, Receive, and Activity.
       shell/          Sidebar and the app-shell layout.
       AuthLayout.tsx  Split brand/task layout for the onboarding screens.
       context.tsx     Wallet state (balance, network) with refresh.
-      router.ts       Hash routes: overview, send, receive.
+      router.ts       Hash routes: overview, activity, send, receive.
     background.ts     Background service worker.
   components/         Shared UI (Button, Field, AddressText, Guilloche, ...).
   assets/styles/      Design tokens and base styles.
@@ -157,6 +200,13 @@ extension/
     send.ts           Recipient/amount parsing, review building, and signing.
     format.ts         Big-int formatting for display (down, up, exact).
     receive.ts        Receive URI (EIP-681) construction.
+    history/
+      types.ts        Activity types and the history-provider interface.
+      blockscout.ts   Strict Blockscout API parsing, pagination, and timeouts.
+      local.ts        Local sent-transaction records (last 50) and merging.
+      blockscout.test.ts  Parser tests against the recorded fixture.
+      local.test.ts       Local-record and merge tests.
+      fixtures/       A recorded Blockscout transaction plus variants.
     input.ts          Recovery-phrase input normalization.
     account.test.ts   Tests for phrase generation and derivation.
     confirm.test.ts   Tests for confirmation-word selection and checking.

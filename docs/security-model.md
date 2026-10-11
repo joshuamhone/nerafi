@@ -12,7 +12,8 @@ adds a password-encrypted vault that persists the wallet on the local machine
 and can be locked and unlocked. Milestone 3 adds Sepolia balance display and
 sending test ETH. Milestone 4 adds the app shell with sidebar navigation, the
 overview and receive pages, a locally rendered QR code, and one consistent way
-of displaying amounts.
+of displaying amounts. Milestone 5 adds activity history from a public
+explorer, a transaction detail view, and local sent records.
 
 What Nerafi does today:
 
@@ -36,11 +37,20 @@ What Nerafi does today:
 - Explains a transfer in plain English before signing it.
 - Signs and sends a test-ETH transfer on Sepolia, after the password is entered
   again.
+- Reads the wallet's transaction history from the public Blockscout explorer on
+  demand and shows it on the Activity page and on the Overview.
+- Keeps local copies of its own recent sends (`nerafi.localTx`, last 50) only
+  until Blockscout indexes them, so they can surface as pending in the gap
+  before indexing; after 30 minutes the note says the transaction may have been
+  dropped.
+- Connects to no network other than the Sepolia RPC endpoint and the Blockscout
+  explorer described in "Sending test ETH" and "Transaction history" below.
 
 What Nerafi does not do:
 
 - It does not connect to any network other than the single Sepolia RPC endpoint
-  described in "Sending test ETH" below.
+  described in "Sending test ETH" below and the Blockscout explorer described in
+  "Transaction history" below.
 - It does not sign or send on any chain other than Sepolia. Signing is refused if
   the RPC reports any other chain ID.
 - It does not sign anything without a review and a password re-entry.
@@ -48,6 +58,9 @@ What Nerafi does not do:
   session holds only the address and an expiry time; the phrase is decrypted only
   during unlock and during signing.
 - It does not run in the background; it acts only in response to the user.
+- Transaction history never drives a signature or a funds decision. History is a
+  record of what the explorer reports; the signing flow reads its values from the
+  review the user approves, never from a history row.
 
 ## Standards and libraries
 
@@ -373,6 +386,92 @@ The wallet needs an address and a way to receive test ETH on Sepolia.
   only when the user clicks "Copy address", and the address itself is public
   on-chain. Unlike the recovery phrase (see "Onboarding protections"), the
   address is safe to hand to other software that can read the clipboard.
+
+## Transaction history (Milestone 5)
+
+### The short version
+
+- History is read from `eth-sepolia.blockscout.com`, a third-party public
+  explorer. It is not part of Nerafi and may lag the network.
+- Each request sends the wallet's public address; Blockscout can link that
+  address to the user's IP address. No keys, phrases or passwords are sent.
+- Status, labels (including scam labels) and amounts shown in Activity come
+  from Blockscout and are not independently verified by Nerafi. Balance still
+  comes from the RPC node.
+- Nerafi keeps a local copy of its own sends (`nerafi.localTx`, max 50) only
+  until Blockscout indexes them; it stores hash, from, to, value, time, and a
+  nonce field that is currently always empty (`null`) because the send flow
+  does not yet return the nonce — it will be filled when speed-up/cancel is
+  built. No secrets.
+- A dropped transaction cannot currently be detected; Nerafi says so after 30
+  minutes rather than guessing.
+
+### The data source is a third-party explorer
+
+- `https://eth-sepolia.blockscout.com` exposes an open, keyless JSON API.
+- A request asks for the transactions of one address and, on later pages, the
+  cursor Blockscout itself returned. No new permission is required: like the
+  RPC call, the fetch works from the extension page without a host permission
+  because the endpoint allows cross-origin requests.
+- Blockscout can lag the network by a few seconds, and it can be temporarily
+  unreachable. When that happens the wallet shows a fixed "Couldn't load
+  history from Blockscout." message rather than a raw error.
+- Loading more pages is always user-initiated ("Load more"), never automatic.
+
+### Untrusted data and labels
+
+Blockscout data is untrusted input, not part of the wallet's own state:
+
+- Every item is parsed strictly by hand. Fields that fail their check (bad
+  hash, bad address, non-numeric value, and so on) are dropped and counted, and
+  the page reports "N entries couldn't be read and are not shown." A malformed
+  entry is never thrown and never logged. A transaction that involves neither
+  the wallet address as sender nor as recipient is likewise dropped and
+  counted.
+- Status is decided only from the explorer's `status` field: `ok` is shown as
+  Confirmed, `error` as Failed, anything else as Pending. A failed
+  transaction's `result` text, when present, is shown on the detail page as the
+  reason (`"Reason reported by Blockscout: ..."`), truncated to 200 characters
+  and rendered as plain text. The `result` field never decides the status.
+- Scam labels and reputation scores come from Blockscout and are shown as
+  Blockscout's claim — "Blockscout labels this address as a scam. Nerafi has
+  not verified this label." — not as a wallet verdict. For a contract creation,
+  the "To" row shows the created contract's address as "Created contract" when
+  Blockscout returns one; the wallet's own address is never shown as the
+  counterparty of an outgoing transaction.
+- The amounts shown on rows and the exact values on the detail page use the
+  same big-int formatter as the rest of the wallet. History display never
+  changes wallet state, never triggers a re-sign, and never edits the vault.
+
+### Local sent records
+
+- The last 50 sent transactions are kept in `chrome.storage.local` under
+  `nerafi.localTx`: hash, from, to, value in wei, nonce, and a local timestamp.
+  The nonce is currently always empty (`null`) because the send flow does not
+  yet return it; it will be filled when speed-up/cancel is built. A row is only
+  ever written when this wallet has actually sent that transaction; nothing
+  re-signs and the phrase is never read or decrypted for history.
+- The records exist only to cover the gap before Blockscout indexes a send.
+  Whenever any loaded page contains a hash that matches a local record, that
+  record is deleted.
+- On the first page, only records newer than the page's oldest item are shown
+  when the explorer has more pages; when the first page is the whole history,
+  all unmatched records are shown. An old unmatched record that is probably on
+  an unloaded page is not guessed into the list.
+- Records are validated on read and malformed entries are dropped. A local-only
+  row shows as "Pending" with the note "Sent from Nerafi · not yet indexed by
+  Blockscout". After 30 minutes the note changes to "Not seen by the network
+  after 30 minutes. It may have been dropped. Check your balance before sending
+  again." A local-only record is never marked failed.
+- The list is capped at 50 entries, newest first.
+
+### What Blockscout does not cover
+
+- Blockscout's `coin_transfer` list does not include ETH or tokens moved to the
+  wallet by smart contracts (internal transactions), and it does not include
+  ERC-20 token transfers. Those simply do not appear in the wallet's history.
+- Search and the All / Sent / Received filter apply to the pages already
+  loaded; older pages that have not been loaded yet are not searched.
 
 ### Display numbers
 

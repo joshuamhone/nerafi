@@ -4,6 +4,7 @@ import { isAddress } from 'viem';
 import type { Hex } from 'viem';
 import { createMnemonic, deriveAddress, isValidMnemonic } from '../../lib/wallet/account';
 import { checkConfirmation, pickConfirmationIndices } from '../../lib/wallet/confirm';
+import { saveLocalTx } from '../../lib/wallet/history/local';
 import {
   decryptPhrase,
   encryptPhrase,
@@ -36,7 +37,7 @@ import { normalizePhraseInput } from '../../lib/wallet/input';
 import { AuthLayout } from './AuthLayout';
 import { WalletProvider, useWallet } from './context';
 import type { Route } from './router';
-import { parseRoute, routeHref } from './router';
+import { parseActivityId, parseRoute, routeHref } from './router';
 import { AppShell } from './shell/AppShell';
 import { Loading } from './screens/Loading';
 import { Welcome } from './screens/Welcome';
@@ -51,6 +52,7 @@ import { ReviewScreen } from './screens/Review';
 import { Sent } from './screens/Sent';
 import type { SendStatus } from './screens/Sent';
 import { Overview } from './pages/Overview';
+import { ActivityPage } from './pages/ActivityPage';
 import { Receive } from './pages/ReceivePage';
 import './App.css';
 
@@ -108,6 +110,7 @@ function SentRoute({
 function App() {
   const [step, setStep] = useState<AuthStep>('loading');
   const [route, setRoute] = useState<Route>('overview');
+  const [activityId, setActivityId] = useState<string | null>(null);
   const [sendStep, setSendStep] = useState<SendStep>('form');
   const [flow, setFlow] = useState<Flow>(null);
   const [words, setWords] = useState<string[]>([]);
@@ -155,6 +158,7 @@ function App() {
     const apply = () => {
       const next = parseRoute(window.location.hash);
       setRoute(next);
+      setActivityId(parseActivityId(window.location.hash));
       if (next === 'send') {
         resetSendFlow();
       } else {
@@ -464,6 +468,16 @@ function App() {
       setTxHash(hash);
       setTxStatus('pending');
       setSendStep('sent');
+      saveLocalTx({
+        hash,
+        from: review.from,
+        to: review.to,
+        valueWei: review.valueWei.toString(),
+        nonce: null,
+        createdAt: Date.now(),
+      }).catch(() => {
+        // A failed local mirror write must not affect the already-broadcast transaction.
+      });
     } catch (err) {
       setReviewError(err instanceof VaultError ? err.message : sendFailureMessage(err));
     } finally {
@@ -585,6 +599,13 @@ function App() {
                 status={txStatus}
                 error={reviewError}
                 onBackToWallet={cancelSend}
+              />
+            )}
+
+            {route === 'activity' && (
+              <ActivityPage
+                id={activityId}
+                onBackToActivity={() => navigate('activity')}
               />
             )}
 

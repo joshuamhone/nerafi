@@ -49,6 +49,10 @@ the visual work; the icons are inline SVG with no image files.
 
 **Accepted limitation.** Balance lookups and sent transactions go to a single keyless public endpoint (`https://ethereum-sepolia-rpc.publicnode.com`). The operator of that endpoint sees the wallet address, the contents of each request (including the signed transaction), and the user's IP address. A keyed endpoint would not help: an API key bundled in a browser extension is readable by anyone who installs it. The alternative, running our own node, is out of scope for a portfolio project on Sepolia.
 
+## Public Blockscout operator sees the address, requests, and IP
+
+**Accepted limitation.** Activity history requests go to the public Blockscout explorer for Sepolia (`eth-sepolia.blockscout.com`). Each request asks for the transactions of the wallet's public address and, on later pages, the cursor Blockscout itself returned, so the operator can link the wallet address to the user's IP address, just as the public RPC operator can. No keys, phrases or passwords are sent.
+
 ## Public endpoint reliability is not guaranteed
 
 **Accepted limitation.** The public RPC endpoint is shared and offers no uptime guarantee. Balance lookups, fee estimation, and sending can fail if the endpoint is busy or down. When a request fails, the wallet shows a fixed "Could not reach the Sepolia network." message rather than raw RPC errors.
@@ -57,9 +61,53 @@ the visual work; the icons are inline SVG with no image files.
 
 **Accepted limitation.** Fees are estimated during review and then signed as a maximum (`gas limit × maxFeePerGas`). If the network base fee rises sharply between review and inclusion, the transaction may confirm slowly, or not until the fee environment falls back. The wallet does not re-estimate before signing, because what the user reviewed is what gets signed.
 
-## No transaction history beyond the last send
+## Activity history depends on the Blockscout API
 
-**Accepted limitation.** Nerafi keeps no list of past transactions. After a send it shows the hash, the Etherscan link, and the status of that one transaction. Looking up anything older means using an external explorer. Storing history would add state to `chrome.storage.local` and a source of stale data without a clear benefit for a testnet wallet.
+**Accepted limitation.** The Activity page and the recent-activity panel read
+history live from the public Blockscout explorer for Sepolia
+(`eth-sepolia.blockscout.com`). The explorer can lag the network by a few
+seconds and can be temporarily unreachable or slow. When a load fails the
+wallet shows a fixed "Couldn't load history from Blockscout." message with a
+Retry button. The recent-activity panel on the Overview never blocks the
+balance when history fails.
+
+## Activity search and filter only cover loaded pages
+
+**Accepted limitation.** The All / Sent / Received filter and the search box
+apply to the pages already loaded (the first page, plus anything fetched with
+"Load more"). Older transactions that have not been loaded are not searched,
+because loading every page automatically would turn a user-initiated check into
+an unbounded loop of network requests.
+
+## Internal transfers and tokens are not shown in history
+
+**Accepted limitation.** Blockscout's `coin_transfer` list does not include ETH
+or tokens moved to the wallet by smart contracts (internal transactions), and
+it does not include ERC-20 token transfers. The wallet's history is
+plain-ETH-only for that reason.
+
+## Blockscout labels are third-party data
+
+**Accepted limitation.** Scam labels and reputation scores shown next to
+counterparty addresses come from Blockscout and are shown as the explorer's
+claim, with the wording "Blockscout labels this address as a scam. Nerafi has
+not verified this label." They are never treated as a wallet verdict, and they
+never affect what gets signed.
+
+## A dropped transaction cannot be detected
+
+**Accepted limitation.** Transactions this wallet sent are remembered locally
+(`nerafi.localTx`, last 50) only until Blockscout indexes them: whenever a
+loaded page returns a matching hash, the local record is deleted. Records that
+stay unmatched are shown as "Pending" with the note "Sent from Nerafi · not yet
+indexed by Blockscout". After 30 minutes the note changes to "Not seen by the
+network after 30 minutes. It may have been dropped. Check your balance before
+sending again." Nerafi cannot tell a transaction that is simply slow to index
+from one that was dropped from the mempool, so it never marks a local-only
+record as failed — it says so after 30 minutes rather than guessing. On the
+first page, only records newer than the page's oldest item are shown when the
+explorer has more pages (an old unmatched record is probably on an unloaded
+page and is not guessed into the list).
 
 ## QR code rendering uses the `qr` package (accepted dependency)
 

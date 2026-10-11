@@ -6,6 +6,9 @@ import { RefreshIcon } from '../../../components/icons';
 import { formatBalance, formatExact } from '../../../lib/wallet/format';
 import { SEPOLIA_CHAIN_ID } from '../../../lib/wallet/network';
 import { useWallet } from '../context';
+import { routeHref } from '../router';
+import { ActivityRow } from './ActivityRow';
+import { useHistoryFeed } from './useHistoryFeed';
 import './Overview.css';
 
 type OverviewProps = {
@@ -44,6 +47,9 @@ export function Overview({ addressCorrected, onSend, onReceive }: OverviewProps)
     const id = window.setInterval(() => setTick((t) => t + 1), 60_000);
     return () => window.clearInterval(id);
   }, []);
+
+  const feed = useHistoryFeed(address);
+  const recent = feed.items.slice(0, 5);
 
   const showBalanceSkeleton = balanceLoading && balanceWei === null;
   const showBlockSkeleton = network === 'checking' && blockNumber === null;
@@ -105,6 +111,44 @@ export function Overview({ addressCorrected, onSend, onReceive }: OverviewProps)
             <span className="address-label">Your address</span>
             <AddressText value={address} />
           </section>
+
+          <section className="panel recent-panel">
+            <div className="recent-header">
+              <h2 className="panel-title">Recent activity</h2>
+              <a className="recent-link" href={routeHref('activity')}>
+                View all activity
+              </a>
+            </div>
+
+            {feed.status === 'loading' && recent.length === 0 && (
+              <div className="recent-skeletons" aria-hidden="true">
+                <span className="recent-skeleton" />
+                <span className="recent-skeleton" />
+                <span className="recent-skeleton" />
+              </div>
+            )}
+
+            {feed.status === 'error' && (
+              <Notice variant="alert">
+                Couldn't load history from Blockscout.{' '}
+                <button type="button" className="inline-retry" onClick={feed.retry}>
+                  Retry
+                </button>
+              </Notice>
+            )}
+
+            {feed.status === 'ready' && feed.items.length === 0 && (
+              <p className="recent-empty">No transactions yet.</p>
+            )}
+
+            {recent.length > 0 && (
+              <ul className="recent-list">
+                {recent.map((item) => (
+                  <ActivityRow key={item.hash} item={item} compact />
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
 
         <aside className="overview-right">
@@ -129,7 +173,7 @@ export function Overview({ addressCorrected, onSend, onReceive }: OverviewProps)
                   )}
                 </dd>
               </div>
-              <div className="network-row">
+              <div className="network-row network-row--stacked">
                 <dt>RPC</dt>
                 <dd>{rpcHost}</dd>
               </div>
