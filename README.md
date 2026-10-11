@@ -13,8 +13,8 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **Milestone 1 — complete:** wallet creation and recovery-phrase onboarding.
 - **Milestone 2 — complete:** encrypted vault (password-based encryption,
   lock/unlock).
-- **Milestone 3 — planned:** Sepolia balance, transaction explanation, signing,
-  and sending.
+- **Milestone 3 — complete:** Sepolia balance, plain-English transaction review,
+  signing, and sending.
 
 ## Features
 
@@ -33,12 +33,38 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **Password-encrypted vault.** The phrase is encrypted with PBKDF2-HMAC-SHA256
   (600,000 iterations and a 16-byte random salt) and AES-256-GCM (a 12-byte
   random IV) before it is saved to `chrome.storage.local`.
-- **Lock and unlock.** The wallet unlocks with the password and holds the phrase
-  in `chrome.storage.session` (in memory only) while it is open.
+- **Lock and unlock.** The wallet unlocks with the password and keeps only the
+  wallet address and an expiry time in `chrome.storage.session` (in memory only)
+  while it is open; the recovery phrase is not kept there.
 - **Auto-lock.** The wallet locks 15 minutes after unlocking.
 - **Restore.** An existing recovery phrase can be restored, with a confirmation
   that this replaces the saved wallet.
 - **One extension permission.** The manifest requests only `storage`.
+
+**Milestone 3 — send test ETH**
+
+- **Sepolia balance.** The unlocked screen shows the wallet's balance, with a
+  Refresh button.
+- **Plain-English review.** Before signing, Nerafi explains the transfer and
+  shows the exact recipient, amount, maximum fee, and total.
+- **Password re-entry.** Sending requires the password again, even while the
+  wallet is unlocked.
+- **Sepolia-only signing.** The RPC's chain ID is checked immediately before
+  every signature, and transactions are signed with chain ID 11155111 (EIP-155),
+  so they cannot be replayed on mainnet.
+- **Local signing.** The private key is derived only at signing time and never
+  leaves the extension; only the signed transaction is sent to the RPC.
+- **One RPC endpoint.** Balance lookups and sends use a single keyless public
+  Sepolia endpoint.
+
+## Getting test ETH
+
+To try sending, you need Sepolia test ETH on the address for your test recovery
+phrase. Use a Sepolia faucet and paste that address in.
+
+> **Never use a real wallet or a real recovery phrase.** Nerafi is for testnet
+> play only. Use a throwaway phrase, and treat any address and phrase it shows as
+> disposable.
 
 ## Getting started
 
@@ -59,17 +85,21 @@ Run these commands inside the `extension/` directory:
 extension/
   entrypoints/
     popup/            Popup with the "Open wallet" button.
-    wallet/           Full-page UI (onboarding, password, locked, unlocked).
+    wallet/           Full-page UI (onboarding, vault, balance, send).
     background.ts     Background service worker.
   lib/wallet/
     account.ts        Phrase generation, checksum validation, address derivation.
     confirm.ts        Random confirmation-word selection and answer checking.
     vault.ts          Password-based encryption and decryption of the phrase.
     storage.ts        chrome.storage wrappers for the vault and session.
+    network.ts        Sepolia chain ID, RPC client, and balance lookup.
+    send.ts           Recipient/amount parsing, review building, and signing.
     account.test.ts   Tests for phrase generation and derivation.
     confirm.test.ts   Tests for confirmation-word selection and checking.
     vault.test.ts     Tests for encryption, decryption, and parsing.
     storage.test.ts   Tests for the storage wrappers.
+    network.test.ts   Tests for the Sepolia chain-ID check.
+    send.test.ts      Tests for parsing, review math, and signing.
   vitest.config.ts    Vitest config (WXT plugin with a fake browser API).
   wxt.config.ts       WXT and manifest configuration.
   package.json        Scripts and dependencies.

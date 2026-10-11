@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
+import { formatEther, isAddress } from 'viem';
+import type { Hex } from 'viem';
 import { createMnemonic, deriveAddress, isValidMnemonic } from '../../lib/wallet/account';
 import { checkConfirmation, pickConfirmationIndices } from '../../lib/wallet/confirm';
 import {
@@ -9,7 +11,7 @@ import {
   VaultError,
 } from '../../lib/wallet/vault';
 import {
-  getUnlockedPhrase,
+  getUnlockedAddress,
   hasVault,
   loadVault,
   lock,
@@ -17,6 +19,22 @@ import {
   setUnlocked,
   syncAddress,
 } from '../../lib/wallet/storage';
+import {
+  assertSepolia,
+  createSepoliaClient,
+  EXPLORER_TX_URL,
+  getBalanceWei,
+  NetworkError,
+  SEPOLIA_CHAIN_ID,
+} from '../../lib/wallet/network';
+import {
+  buildReview,
+  explainReview,
+  parseAmount,
+  parseRecipient,
+  submitTransfer,
+} from '../../lib/wallet/send';
+import type { Review } from '../../lib/wallet/send';
 
 type Step =
   | 'loading'
@@ -26,12 +44,22 @@ type Step =
   | 'set-password'
   | 'restore'
   | 'locked'
-  | 'unlocked';
+  | 'unlocked'
+  | 'send'
+  | 'review'
+  | 'sent';
+
+type TxStatus = 'pending' | 'confirmed' | 'failed' | 'timeout';
 
 const CONFIRM_COUNT = 3;
 
 function normalizePhrase(input: string): string {
   return input.trim().toLowerCase().split(/\s+/).join(' ');
+}
+
+function sendFailureMessage(err: unknown): string {
+  if (err instanceof NetworkError) return err.message;
+  return 'Could not send the transaction. Nothing was signed if the network check failed.';
 }
 
 function App() {
@@ -50,17 +78,25 @@ function App() {
   const [restoreConfirmed, setRestoreConfirmed] = useState(false);
   const [vaultExists, setVaultExists] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [balance, setBalance] = useState<bigint | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceError, setBalanceError] = useState('');
+  const [recipient, setRecipient] = useState('');
+  const [amount, setAmount] = useState('');
+  const [sendError, setSendError] = useState('');
+  const [review, setReview] = useState<Review | null>(null);
+  const [sendPassword, setSendPassword] = useState('');
+  const [txHash, setTxHash] = useState<Hex | null>(null);
+  const [txStatus, setTxStatus] = useState<TxStatus>('pending');
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const unlocked = await getUnlockedPhrase();
+      const unlockedAddress = await getUnlockedAddress();
       if (cancelled) return;
-      if (unlocked !== null) {
-        const synced = await syncAddress(unlocked);
-        if (cancelled) return;
-        setAddress(synced.address);
-        setAddressCorrected(synced.corrected);
+      if (unlockedAddress !== null) {
+        setAddress(unlockedAddress);
+        setAddressCorrected(false);
         setVaultExists(true);
         setStep('unlocked');
         return;
@@ -84,14 +120,62 @@ function App() {
     if (step !== 'unlocked') return undefined;
     const id = window.setInterval(() => {
       void (async () => {
-        const unlocked = await getUnlockedPhrase();
-        if (unlocked === null) {
+        const unlockedAddress = await getUnlockedAddress();
+        if (unlockedAddress === null) {
           setStep('locked');
         }
       })();
     }, 30_000);
     return () => window.clearInterval(id);
   }, [step]);
+
+  useEffect(() => {
+    if (step !== 'unlocked') return undefined;
+    if (!isAddress(address)) return undefined;
+    let cancelled = false;
+    void (async () => {
+      setBalanceError('');
+      setBalanceLoading(true);
+      try {
+        const client = createSepoliaClient();
+        const wei = await getBalanceWei(client, address);
+        if (cancelled) return;
+        setBalance(wei);
+      } catch {
+        if (cancelled) return;
+        setBalance(null);
+        setBalanceError('Could not reach the Sepolia network.');
+      } finally {
+        if (!cancelled) setBalanceLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, address]);
+
+  useEffect(() => {
+    if (step !== 'sent' || txHash === null) return undefined;
+    let cancelled = false;
+    setTxStatus('pending');
+    void (async () => {
+      try {
+        const client = createSepoliaClient();
+        const receipt = await client.waitForTransactionReceipt({
+          hash: txHash,
+          timeout: 120_000,
+        });
+        if (cancelled) return;
+        setTxStatus(receipt.status === 'success' ? 'confirmed' : 'failed');
+      } catch {
+        if (cancelled) return;
+        setTxStatus('timeout');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, txHash]);
 
   function startCreate() {
     setWords(createMnemonic().split(' '));
@@ -123,8 +207,6 @@ function App() {
     }
     const phrase = words.join(' ');
     setPendingPhrase(phrase);
-    // The confirmation screen no longer needs these; the phrase is carried
-    // forward in a single value until it is encrypted.
     setWords([]);
     setAnswers([]);
     setIndices([]);
@@ -174,11 +256,10 @@ function App() {
       const vault = await encryptPhrase(pendingPhrase, password);
       const derivedAddress = deriveAddress(pendingPhrase);
       await saveVault(vault, derivedAddress);
-      await setUnlocked(pendingPhrase);
+      await setUnlocked(derivedAddress);
       setAddress(derivedAddress);
       setAddressCorrected(false);
       setVaultExists(true);
-      // The phrase and password are no longer needed on this page.
       setPendingPhrase('');
       setPassword('');
       setConfirmPassword('');
@@ -202,8 +283,8 @@ function App() {
         return;
       }
       const phrase = await decryptPhrase(loaded.vault, password);
-      await setUnlocked(phrase);
       const synced = await syncAddress(phrase);
+      await setUnlocked(synced.address);
       setAddress(synced.address);
       setAddressCorrected(synced.corrected);
       setPassword('');
@@ -216,6 +297,22 @@ function App() {
     }
   }
 
+  async function refreshBalance() {
+    if (!isAddress(address)) return;
+    setBalanceError('');
+    setBalance(null);
+    setBalanceLoading(true);
+    try {
+      const client = createSepoliaClient();
+      const wei = await getBalanceWei(client, address);
+      setBalance(wei);
+    } catch {
+      setBalanceError('Could not reach the Sepolia network.');
+    } finally {
+      setBalanceLoading(false);
+    }
+  }
+
   async function handleLock() {
     setBusy(true);
     try {
@@ -223,6 +320,96 @@ function App() {
       setError('');
       setStep('locked');
     } finally {
+      setBusy(false);
+    }
+  }
+
+  function startSend() {
+    setRecipient('');
+    setAmount('');
+    setSendError('');
+    setReview(null);
+    setStep('send');
+  }
+
+  async function submitSend(event: FormEvent) {
+    event.preventDefault();
+    setSendError('');
+    const recipientResult = parseRecipient(recipient, address);
+    if (!recipientResult.ok) {
+      setSendError(recipientResult.error);
+      return;
+    }
+    const amountResult = parseAmount(amount);
+    if (!amountResult.ok) {
+      setSendError(amountResult.error);
+      return;
+    }
+    if (!isAddress(address)) {
+      setSendError('Could not reach the Sepolia network.');
+      return;
+    }
+    const from = address;
+    setBusy(true);
+    try {
+      const client = createSepoliaClient();
+      await assertSepolia(client);
+      const balanceWei = await getBalanceWei(client, from);
+      if (balanceWei < amountResult.wei) {
+        setBalance(balanceWei);
+        setSendError('Insufficient test ETH for this amount.');
+        return;
+      }
+      const gas = await client.estimateGas({
+        account: from,
+        to: recipientResult.address,
+        value: amountResult.wei,
+        prepare: false,
+      });
+      const fees = await client.estimateFeesPerGas();
+      const built = buildReview({
+        from,
+        to: recipientResult.address,
+        valueWei: amountResult.wei,
+        gas,
+        maxFeePerGas: fees.maxFeePerGas,
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+        balanceWei,
+      });
+      setBalance(balanceWei);
+      setReview(built);
+      setStep('review');
+    } catch (err) {
+      setSendError(
+        err instanceof NetworkError
+          ? err.message
+          : 'Could not prepare the transaction. Check your connection and the details, then try again.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmSend(event: FormEvent) {
+    event.preventDefault();
+    if (review === null) return;
+    setSendError('');
+    setBusy(true);
+    try {
+      const loaded = await loadVault();
+      if (loaded === null) {
+        setSendError('Unsupported or damaged vault');
+        return;
+      }
+      const phrase = await decryptPhrase(loaded.vault, sendPassword);
+      const hash = await submitTransfer({ client: createSepoliaClient() }, phrase, review);
+      setTxHash(hash);
+      setTxStatus('pending');
+      setStep('sent');
+    } catch (err) {
+      setSendError(err instanceof VaultError ? err.message : sendFailureMessage(err));
+    } finally {
+      setSendPassword('');
       setBusy(false);
     }
   }
@@ -426,9 +613,167 @@ function App() {
               did not expect this, your browser profile may have been tampered with.
             </p>
           )}
+
+          <p>
+            Balance:{' '}
+            {balance !== null
+              ? `${formatEther(balance)} test ETH`
+              : balanceLoading
+                ? 'Loading…'
+                : '—'}
+          </p>
+          {balanceError && <p role="alert">{balanceError}</p>}
+
+          <p>
+            <button onClick={() => void refreshBalance()} disabled={balanceLoading || busy}>
+              Refresh
+            </button>{' '}
+            <button onClick={startSend} disabled={busy}>
+              Send
+            </button>
+          </p>
+
           <p>Auto-locks 15 minutes after unlocking.</p>
           <button onClick={handleLock} disabled={busy}>
             Lock
+          </button>
+        </section>
+      )}
+
+      {step === 'send' && (
+        <section>
+          <h2>Send test ETH</h2>
+          <form onSubmit={submitSend}>
+            <p>
+              <label>
+                Recipient address{' '}
+                <input
+                  type="text"
+                  value={recipient}
+                  onChange={(e) => setRecipient(e.target.value)}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                />
+              </label>
+            </p>
+            <p>
+              <label>
+                Amount (test ETH){' '}
+                <input
+                  type="text"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                />
+              </label>
+            </p>
+
+            {sendError && <p role="alert">{sendError}</p>}
+
+            <button type="submit" disabled={busy}>
+              Review
+            </button>{' '}
+            <button type="button" onClick={() => setStep('unlocked')} disabled={busy}>
+              Cancel
+            </button>
+          </form>
+        </section>
+      )}
+
+      {step === 'review' && review !== null && (
+        <section>
+          <h2>Review your transaction</h2>
+          <p>{explainReview(review)}</p>
+
+          <dl>
+            <dt>From</dt>
+            <dd>
+              <code>{review.from}</code>
+            </dd>
+            <dt>To</dt>
+            <dd>
+              <code>{review.to}</code>
+            </dd>
+            <dt>Amount</dt>
+            <dd>{formatEther(review.valueWei)} test ETH</dd>
+            <dt>Max network fee</dt>
+            <dd>{formatEther(review.maxFeeWei)} test ETH</dd>
+            <dt>Total (maximum)</dt>
+            <dd>{formatEther(review.totalMaxWei)} test ETH</dd>
+            <dt>Network</dt>
+            <dd>Sepolia testnet (chain ID {SEPOLIA_CHAIN_ID})</dd>
+          </dl>
+
+          {review.to.toLowerCase() === address.toLowerCase() && (
+            <p role="alert">You are sending to your own address.</p>
+          )}
+
+          {!review.sufficient && (
+            <p role="alert">Insufficient test ETH for this amount plus the maximum fee.</p>
+          )}
+
+          <form onSubmit={confirmSend}>
+            <p>
+              <label>
+                Password{' '}
+                <input
+                  type="password"
+                  value={sendPassword}
+                  onChange={(e) => setSendPassword(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </label>
+            </p>
+
+            {sendError && <p role="alert">{sendError}</p>}
+
+            <button type="submit" disabled={busy || !review.sufficient}>
+              Confirm and send
+            </button>{' '}
+            <button
+              type="button"
+              onClick={() => {
+                setSendPassword('');
+                setSendError('');
+                setStep('unlocked');
+              }}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+          </form>
+        </section>
+      )}
+
+      {step === 'sent' && txHash !== null && (
+        <section>
+          <h2>Transaction sent</h2>
+          <p>Transaction hash:</p>
+          <code>{txHash}</code>
+          <p>
+            <a href={`${EXPLORER_TX_URL}${txHash}`} target="_blank" rel="noopener noreferrer">
+              View on Sepolia Etherscan
+            </a>
+          </p>
+          <p>
+            Status:{' '}
+            {txStatus === 'pending' && 'Pending'}
+            {txStatus === 'confirmed' && 'Confirmed'}
+            {txStatus === 'failed' && 'Failed'}
+            {txStatus === 'timeout' && 'Still pending — check Etherscan'}
+          </p>
+          <button
+            onClick={() => {
+              setStep('unlocked');
+              void refreshBalance();
+            }}
+          >
+            Back to wallet
           </button>
         </section>
       )}

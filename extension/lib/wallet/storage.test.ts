@@ -3,7 +3,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { EncryptedVault } from './vault';
 import {
   AUTO_LOCK_MS,
-  getUnlockedPhrase,
+  getUnlockedAddress,
   hasVault,
   loadVault,
   lock,
@@ -84,33 +84,59 @@ describe('syncAddress', () => {
 });
 
 describe('unlocked session', () => {
-  it('returns the phrase before expiry', async () => {
-    await setUnlocked(PHRASE, 1000);
-    await expect(getUnlockedPhrase(1000)).resolves.toBe(PHRASE);
-    await expect(getUnlockedPhrase(1000 + AUTO_LOCK_MS - 1)).resolves.toBe(PHRASE);
+  it('returns the address before expiry', async () => {
+    await setUnlocked(ADDRESS, 1000);
+    await expect(getUnlockedAddress(1000)).resolves.toBe(ADDRESS);
+    await expect(getUnlockedAddress(1000 + AUTO_LOCK_MS - 1)).resolves.toBe(ADDRESS);
+  });
+
+  it('stores only the address and expiry, with no phrase key', async () => {
+    await setUnlocked(ADDRESS, 1000);
+    const raw: Record<string, unknown> = await fakeBrowser.storage.session.get(SESSION_KEY);
+    const entry = raw[SESSION_KEY] as Record<string, unknown>;
+    expect(Object.keys(entry)).not.toContain('phrase');
+    expect(entry).toEqual({ address: ADDRESS, expiresAt: 1000 + AUTO_LOCK_MS });
   });
 
   it('returns null at and after expiry and removes the entry', async () => {
-    await setUnlocked(PHRASE, 1000);
-    await expect(getUnlockedPhrase(1000 + AUTO_LOCK_MS)).resolves.toBeNull();
+    await setUnlocked(ADDRESS, 1000);
+    await expect(getUnlockedAddress(1000 + AUTO_LOCK_MS)).resolves.toBeNull();
     const atExpiry: Record<string, unknown> = await fakeBrowser.storage.session.get(SESSION_KEY);
     expect(atExpiry[SESSION_KEY]).toBeUndefined();
 
-    await setUnlocked(PHRASE, 1000);
-    await expect(getUnlockedPhrase(1000 + AUTO_LOCK_MS + 1)).resolves.toBeNull();
+    await setUnlocked(ADDRESS, 1000);
+    await expect(getUnlockedAddress(1000 + AUTO_LOCK_MS + 1)).resolves.toBeNull();
     const afterExpiry: Record<string, unknown> = await fakeBrowser.storage.session.get(SESSION_KEY);
     expect(afterExpiry[SESSION_KEY]).toBeUndefined();
   });
 
   it('lock clears the session', async () => {
-    await setUnlocked(PHRASE, 1000);
+    await setUnlocked(ADDRESS, 1000);
     await lock();
-    await expect(getUnlockedPhrase(1000)).resolves.toBeNull();
+    await expect(getUnlockedAddress(1000)).resolves.toBeNull();
   });
 
   it('returns null for a malformed session entry and removes it', async () => {
-    await fakeBrowser.storage.session.set({ [SESSION_KEY]: { phrase: 42 } });
-    await expect(getUnlockedPhrase(1000)).resolves.toBeNull();
+    await fakeBrowser.storage.session.set({ [SESSION_KEY]: { address: 42 } });
+    await expect(getUnlockedAddress(1000)).resolves.toBeNull();
+    const raw: Record<string, unknown> = await fakeBrowser.storage.session.get(SESSION_KEY);
+    expect(raw[SESSION_KEY]).toBeUndefined();
+  });
+
+  it('treats a legacy entry containing a phrase as malformed and removes it', async () => {
+    await fakeBrowser.storage.session.set({
+      [SESSION_KEY]: { phrase: PHRASE, expiresAt: 1000 + AUTO_LOCK_MS },
+    });
+    await expect(getUnlockedAddress(1000)).resolves.toBeNull();
+    const raw: Record<string, unknown> = await fakeBrowser.storage.session.get(SESSION_KEY);
+    expect(raw[SESSION_KEY]).toBeUndefined();
+  });
+
+  it('treats an invalid address as malformed and removes it', async () => {
+    await fakeBrowser.storage.session.set({
+      [SESSION_KEY]: { address: '0x1234', expiresAt: 1000 + AUTO_LOCK_MS },
+    });
+    await expect(getUnlockedAddress(1000)).resolves.toBeNull();
     const raw: Record<string, unknown> = await fakeBrowser.storage.session.get(SESSION_KEY);
     expect(raw[SESSION_KEY]).toBeUndefined();
   });
