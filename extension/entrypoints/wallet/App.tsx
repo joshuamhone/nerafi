@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactElement } from 'react';
 import { isAddress } from 'viem';
 import type { Hex } from 'viem';
 import { createMnemonic, deriveAddress, isValidMnemonic } from '../../lib/wallet/account';
@@ -33,8 +33,11 @@ import {
 } from '../../lib/wallet/send';
 import type { Review } from '../../lib/wallet/send';
 import { normalizePhraseInput } from '../../lib/wallet/input';
-import { TopBar } from '../../components/TopBar';
-import type { LockState } from '../../components/TopBar';
+import { AuthLayout } from './AuthLayout';
+import { WalletProvider, useWallet } from './context';
+import type { Route } from './router';
+import { parseRoute, routeHref } from './router';
+import { AppShell } from './shell/AppShell';
 import { Loading } from './screens/Loading';
 import { Welcome } from './screens/Welcome';
 import { Reveal } from './screens/Reveal';
@@ -42,14 +45,16 @@ import { Confirm } from './screens/Confirm';
 import { SetPassword } from './screens/SetPassword';
 import { Restore } from './screens/Restore';
 import { Locked } from './screens/Locked';
-import { Unlocked } from './screens/Unlocked';
 import { Send } from './screens/Send';
 import type { SendErrorField } from './screens/Send';
 import { ReviewScreen } from './screens/Review';
 import { Sent } from './screens/Sent';
+import type { SendStatus } from './screens/Sent';
+import { Overview } from './pages/Overview';
+import { Receive } from './pages/ReceivePage';
 import './App.css';
 
-type Step =
+type AuthStep =
   | 'loading'
   | 'welcome'
   | 'reveal'
@@ -57,30 +62,53 @@ type Step =
   | 'set-password'
   | 'restore'
   | 'locked'
-  | 'unlocked'
-  | 'send'
-  | 'review'
-  | 'sent';
+  | 'unlocked';
 
 type Flow = 'create' | 'restore' | null;
-type TxStatus = 'pending' | 'confirmed' | 'failed' | 'timeout';
+type SendStep = 'form' | 'review' | 'sent';
 
 const CONFIRM_COUNT = 3;
-const UNLOCKED_STEPS: Step[] = ['unlocked', 'send', 'review', 'sent'];
 
 function sendFailureMessage(err: unknown): string {
   if (err instanceof NetworkError) return err.message;
   return 'Could not send the transaction. Nothing was signed if the network check failed.';
 }
 
-function lockStateFor(step: Step): LockState {
-  if (step === 'locked') return 'locked';
-  if (UNLOCKED_STEPS.includes(step)) return 'unlocked';
-  return 'none';
+function SentRoute({
+  hash,
+  to,
+  amountWei,
+  status,
+  error,
+  onBackToWallet,
+}: {
+  hash: Hex;
+  to: string;
+  amountWei: bigint;
+  status: SendStatus;
+  error: string;
+  onBackToWallet: () => void;
+}) {
+  const { refresh } = useWallet();
+  return (
+    <Sent
+      hash={hash}
+      to={to}
+      amountWei={amountWei}
+      status={status}
+      error={error}
+      onBack={() => {
+        onBackToWallet();
+        refresh();
+      }}
+    />
+  );
 }
 
 function App() {
-  const [step, setStep] = useState<Step>('loading');
+  const [step, setStep] = useState<AuthStep>('loading');
+  const [route, setRoute] = useState<Route>('overview');
+  const [sendStep, setSendStep] = useState<SendStep>('form');
   const [flow, setFlow] = useState<Flow>(null);
   const [words, setWords] = useState<string[]>([]);
   const [revealed, setRevealed] = useState(false);
@@ -96,9 +124,6 @@ function App() {
   const [restoreConfirmed, setRestoreConfirmed] = useState(false);
   const [vaultExists, setVaultExists] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [balance, setBalance] = useState<bigint | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState(false);
-  const [balanceError, setBalanceError] = useState('');
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [sendError, setSendError] = useState('');
@@ -107,7 +132,42 @@ function App() {
   const [reviewError, setReviewError] = useState('');
   const [sendPassword, setSendPassword] = useState('');
   const [txHash, setTxHash] = useState<Hex | null>(null);
-  const [txStatus, setTxStatus] = useState<TxStatus>('pending');
+  const [txStatus, setTxStatus] = useState<SendStatus>('pending');
+
+  function resetSendFlow() {
+    setRecipient('');
+    setAmount('');
+    setSendError('');
+    setSendErrorField('');
+    setReview(null);
+    setReviewError('');
+    setSendPassword('');
+    setSendStep('form');
+  }
+
+  function navigate(next: Route) {
+    const target = routeHref(next);
+    if (window.location.hash === target) return;
+    window.location.hash = target;
+  }
+
+  useEffect(() => {
+    const apply = () => {
+      const next = parseRoute(window.location.hash);
+      setRoute(next);
+      if (next === 'send') {
+        resetSendFlow();
+      } else {
+        setSendStep('form');
+        setSendError('');
+        setSendErrorField('');
+        setReviewError('');
+      }
+    };
+    apply();
+    window.addEventListener('hashchange', apply);
+    return () => window.removeEventListener('hashchange', apply);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,6 +179,7 @@ function App() {
         setAddressCorrected(false);
         setVaultExists(true);
         setStep('unlocked');
+        navigate('overview');
         return;
       }
       if (await hasVault()) {
@@ -143,6 +204,7 @@ function App() {
         const unlockedAddress = await getUnlockedAddress();
         if (unlockedAddress === null) {
           setStep('locked');
+          navigate('overview');
         }
       })();
     }, 30_000);
@@ -150,32 +212,7 @@ function App() {
   }, [step]);
 
   useEffect(() => {
-    if (step !== 'unlocked') return undefined;
-    if (!isAddress(address)) return undefined;
-    let cancelled = false;
-    void (async () => {
-      setBalanceError('');
-      setBalanceLoading(true);
-      try {
-        const client = createSepoliaClient();
-        const wei = await getBalanceWei(client, address);
-        if (cancelled) return;
-        setBalance(wei);
-      } catch {
-        if (cancelled) return;
-        setBalance(null);
-        setBalanceError('Could not reach the Sepolia network.');
-      } finally {
-        if (!cancelled) setBalanceLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [step, address]);
-
-  useEffect(() => {
-    if (step !== 'sent' || txHash === null) return undefined;
+    if (step !== 'unlocked' || sendStep !== 'sent' || txHash === null) return undefined;
     let cancelled = false;
     setTxStatus('pending');
     void (async () => {
@@ -195,7 +232,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [step, txHash]);
+  }, [step, sendStep, txHash]);
 
   function startCreate() {
     setFlow('create');
@@ -287,7 +324,9 @@ function App() {
       setConfirmPassword('');
       setError('');
       setFlow(null);
+      resetSendFlow();
       setStep('unlocked');
+      navigate('overview');
     } catch {
       setError('Could not save the wallet. Please try again.');
     } finally {
@@ -312,7 +351,9 @@ function App() {
       setAddressCorrected(synced.corrected);
       setPassword('');
       setError('');
+      resetSendFlow();
       setStep('unlocked');
+      navigate('overview');
     } catch (err) {
       setError(err instanceof VaultError ? err.message : 'Incorrect password or damaged vault');
     } finally {
@@ -320,52 +361,28 @@ function App() {
     }
   }
 
-  async function refreshBalance() {
-    if (!isAddress(address)) return;
-    setBalanceError('');
-    setBalance(null);
-    setBalanceLoading(true);
-    try {
-      const client = createSepoliaClient();
-      const wei = await getBalanceWei(client, address);
-      setBalance(wei);
-    } catch {
-      setBalanceError('Could not reach the Sepolia network.');
-    } finally {
-      setBalanceLoading(false);
-    }
-  }
-
   async function handleLock() {
     setBusy(true);
     try {
       await lock();
-      setSendPassword('');
+      resetSendFlow();
       setPassword('');
-      setReviewError('');
-      setReview(null);
       setError('');
       setStep('locked');
+      navigate('overview');
     } finally {
       setBusy(false);
     }
   }
 
   function startSend() {
-    setRecipient('');
-    setAmount('');
-    setSendError('');
-    setSendErrorField('');
-    setReview(null);
-    setStep('send');
+    resetSendFlow();
+    navigate('send');
   }
 
   function cancelSend() {
-    setSendPassword('');
-    setSendError('');
-    setSendErrorField('');
-    setReviewError('');
-    setStep('unlocked');
+    resetSendFlow();
+    navigate('overview');
   }
 
   async function submitSend(event: FormEvent) {
@@ -396,7 +413,6 @@ function App() {
       await assertSepolia(client);
       const balanceWei = await getBalanceWei(client, from);
       if (balanceWei < amountResult.wei) {
-        setBalance(balanceWei);
         setSendError('Insufficient test ETH for this amount.');
         setSendErrorField('amount');
         return;
@@ -417,10 +433,9 @@ function App() {
         maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
         balanceWei,
       });
-      setBalance(balanceWei);
       setReview(built);
       setReviewError('');
-      setStep('review');
+      setSendStep('review');
     } catch (err) {
       setSendError(
         err instanceof NetworkError
@@ -448,7 +463,7 @@ function App() {
       const hash = await submitTransfer({ client: createSepoliaClient() }, phrase, review);
       setTxHash(hash);
       setTxStatus('pending');
-      setStep('sent');
+      setSendStep('sent');
     } catch (err) {
       setReviewError(err instanceof VaultError ? err.message : sendFailureMessage(err));
     } finally {
@@ -457,129 +472,130 @@ function App() {
     }
   }
 
+  let authScreen: ReactElement | null = null;
+  if (step === 'welcome') {
+    authScreen = <Welcome onCreate={startCreate} onRestore={startRestore} />;
+  } else if (step === 'reveal') {
+    authScreen = <Reveal words={words} revealed={revealed} onReveal={() => setRevealed(true)} onContinue={startConfirm} />;
+  } else if (step === 'confirm') {
+    authScreen = (
+      <Confirm
+        indices={indices}
+        answers={answers}
+        error={error}
+        onAnswer={updateAnswer}
+        onSubmit={submitConfirmation}
+        onBack={backToPhrase}
+      />
+    );
+  } else if (step === 'set-password') {
+    authScreen = (
+      <SetPassword
+        flow={flow}
+        password={password}
+        confirmPassword={confirmPassword}
+        error={error}
+        busy={busy}
+        onPassword={setPassword}
+        onConfirmPassword={setConfirmPassword}
+        onSubmit={submitPassword}
+      />
+    );
+  } else if (step === 'restore') {
+    authScreen = (
+      <Restore
+        vaultExists={vaultExists}
+        value={restoreInput}
+        confirmed={restoreConfirmed}
+        error={error}
+        busy={busy}
+        onValue={setRestoreInput}
+        onToggleConfirmed={setRestoreConfirmed}
+        onSubmit={submitRestore}
+      />
+    );
+  } else if (step === 'locked') {
+    authScreen = (
+      <Locked
+        address={address}
+        password={password}
+        error={error}
+        busy={busy}
+        onPassword={setPassword}
+        onSubmit={submitUnlock}
+        onRestore={startRestore}
+      />
+    );
+  }
+
   return (
     <div className="app">
-      <TopBar lockState={lockStateFor(step)} onLock={() => void handleLock()} busy={busy} />
+      {step === 'loading' && (
+        <main className="main">
+          <Loading />
+        </main>
+      )}
 
-      <main className="main">
-        {step === 'loading' && <Loading />}
+      {authScreen !== null && <AuthLayout>{authScreen}</AuthLayout>}
 
-        {step === 'welcome' && <Welcome onCreate={startCreate} onRestore={startRestore} />}
+      {step === 'unlocked' && (
+        <WalletProvider address={address} onLock={() => void handleLock()}>
+          <AppShell route={route} busy={busy}>
+            {route === 'overview' && (
+              <Overview
+                addressCorrected={addressCorrected}
+                onSend={startSend}
+                onReceive={() => navigate('receive')}
+              />
+            )}
 
-        {step === 'reveal' && (
-          <Reveal
-            words={words}
-            revealed={revealed}
-            onReveal={() => setRevealed(true)}
-            onContinue={startConfirm}
-          />
-        )}
+            {route === 'send' && sendStep === 'form' && (
+              <Send
+                address={address}
+                recipient={recipient}
+                amount={amount}
+                error={sendError}
+                errorField={sendErrorField}
+                busy={busy}
+                onRecipient={setRecipient}
+                onAmount={setAmount}
+                onSubmit={submitSend}
+                onCancel={cancelSend}
+              />
+            )}
 
-        {step === 'confirm' && (
-          <Confirm
-            indices={indices}
-            answers={answers}
-            error={error}
-            onAnswer={updateAnswer}
-            onSubmit={submitConfirmation}
-            onBack={backToPhrase}
-          />
-        )}
+            {route === 'send' && sendStep === 'review' && review !== null && (
+              <ReviewScreen
+                review={review}
+                address={address}
+                password={sendPassword}
+                error={reviewError}
+                busy={busy}
+                onPassword={setSendPassword}
+                onSubmit={confirmSend}
+                onCancel={cancelSend}
+              />
+            )}
 
-        {step === 'set-password' && (
-          <SetPassword
-            flow={flow}
-            password={password}
-            confirmPassword={confirmPassword}
-            error={error}
-            busy={busy}
-            onPassword={setPassword}
-            onConfirmPassword={setConfirmPassword}
-            onSubmit={submitPassword}
-          />
-        )}
+            {route === 'send' && sendStep === 'sent' && txHash !== null && (
+              <SentRoute
+                hash={txHash}
+                to={review?.to ?? ''}
+                amountWei={review?.valueWei ?? 0n}
+                status={txStatus}
+                error={reviewError}
+                onBackToWallet={cancelSend}
+              />
+            )}
 
-        {step === 'restore' && (
-          <Restore
-            vaultExists={vaultExists}
-            value={restoreInput}
-            confirmed={restoreConfirmed}
-            error={error}
-            busy={busy}
-            onValue={setRestoreInput}
-            onToggleConfirmed={setRestoreConfirmed}
-            onSubmit={submitRestore}
-          />
-        )}
+            {route === 'receive' && <Receive />}
+          </AppShell>
+        </WalletProvider>
+      )}
 
-        {step === 'locked' && (
-          <Locked
-            address={address}
-            password={password}
-            error={error}
-            busy={busy}
-            onPassword={setPassword}
-            onSubmit={submitUnlock}
-            onRestore={startRestore}
-          />
-        )}
-
-        {step === 'unlocked' && (
-          <Unlocked
-            address={address}
-            addressCorrected={addressCorrected}
-            balance={balance}
-            balanceLoading={balanceLoading}
-            balanceError={balanceError}
-            onRefresh={() => void refreshBalance()}
-            onSend={startSend}
-          />
-        )}
-
-        {step === 'send' && (
-          <Send
-            address={address}
-            recipient={recipient}
-            amount={amount}
-            error={sendError}
-            errorField={sendErrorField}
-            busy={busy}
-            onRecipient={setRecipient}
-            onAmount={setAmount}
-            onSubmit={submitSend}
-            onCancel={cancelSend}
-          />
-        )}
-
-        {step === 'review' && review !== null && (
-          <ReviewScreen
-            review={review}
-            address={address}
-            password={sendPassword}
-            error={reviewError}
-            busy={busy}
-            onPassword={setSendPassword}
-            onSubmit={confirmSend}
-            onCancel={cancelSend}
-          />
-        )}
-
-        {step === 'sent' && txHash !== null && (
-          <Sent
-            hash={txHash}
-            to={review?.to ?? ''}
-            amountWei={review?.valueWei ?? 0n}
-            status={txStatus}
-            error={reviewError}
-            onBack={() => {
-              setStep('unlocked');
-              void refreshBalance();
-            }}
-          />
-        )}
-      </main>
-
-      <footer className="testnet-notice">Testnet only. Not for real funds.</footer>
+      {step !== 'unlocked' && (
+        <footer className="testnet-notice">Testnet only. Not for real funds.</footer>
+      )}
     </div>
   );
 }

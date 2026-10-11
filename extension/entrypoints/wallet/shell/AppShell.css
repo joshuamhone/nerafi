@@ -1,0 +1,26 @@
+.shell {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+}
+
+.shell-main {
+  flex: 1;
+  min-width: 0;
+  padding: 40px var(--space-7) var(--space-7);
+}
+
+.shell-main-inner {
+  max-width: 960px;
+}
+
+@media (max-width: 899px) {
+  .shell {
+    flex-direction: column;
+  }
+
+  .shell-main {
+    padding: var(--space-5) var(--space-4) var(--space-6);
+  }
+}

@@ -1,8 +1,8 @@
 import type { FormEvent } from 'react';
+import { AddressText } from '../../../components/AddressText';
 import { Button } from '../../../components/Button';
 import { Field } from '../../../components/Field';
 import { Notice } from '../../../components/Notice';
-import './Send.css';
 
 export type SendErrorField = 'recipient' | 'amount' | 'form' | '';
 
@@ -36,7 +36,10 @@ export function Send({
       <header className="screen-header">
         <h1 className="screen-title">Send test ETH</h1>
         <p className="screen-lead">
-          From <span className="send-from mono">{address}</span>
+          From{' '}
+          <span className="send-from">
+            <AddressText value={address} />
+          </span>
         </p>
       </header>
 

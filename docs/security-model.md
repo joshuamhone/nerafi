@@ -10,7 +10,9 @@ of the current design, not a guarantee.
 Milestone 1 covers wallet creation and recovery-phrase onboarding. Milestone 2
 adds a password-encrypted vault that persists the wallet on the local machine
 and can be locked and unlocked. Milestone 3 adds Sepolia balance display and
-sending test ETH.
+sending test ETH. Milestone 4 adds the app shell with sidebar navigation, the
+overview and receive pages, a locally rendered QR code, and one consistent way
+of displaying amounts.
 
 What Nerafi does today:
 
@@ -24,6 +26,13 @@ What Nerafi does today:
   (in memory only) so the wallet can stay open while unlocked, and clears it on
   lock, on browser close, and when its 15-minute auto-lock window has passed.
 - Reads the wallet's Sepolia balance from one public RPC endpoint.
+- Shows the balance and address on an overview page, refreshing them only on
+  unlock or on the user pressing refresh.
+- Renders a QR code for the receive address entirely on the page, and copies
+  the address to the clipboard only when the user clicks "Copy address".
+- Displays every amount with one big-int-only formatter: balances rounded down
+  to six decimals, maximum fees and totals rounded up ("at most"), and typed
+  amounts shown in full.
 - Explains a transfer in plain English before signing it.
 - Signs and sends a test-ETH transfer on Sepolia, after the password is entered
   again.
@@ -345,3 +354,42 @@ never leave the extension.
 The review shows the maximum possible network fee, calculated as
 `gas limit × maxFeePerGas`. The actual fee is usually lower, because the network
 charges the base fee plus the priority fee that is actually needed.
+
+## Receiving test ETH (Milestone 4)
+
+The wallet needs an address and a way to receive test ETH on Sepolia.
+
+- The Receive page shows the wallet's address in the chunked display and a QR
+  code. The QR code encodes the EIP-681 URI `ethereum:<address>@11155111`. The
+  chain id is part of the URI, so a scanner sees exactly where the funds should
+  arrive on Sepolia and nothing else; the address is checksummed before
+  encoding.
+- The QR code is generated on the page with the `qr` package
+  (`encodeQR(uri, 'svg', { border: 4 })`). `qr` is a zero-dependency module, so
+  rendering makes no network request and needs no API key. The returned SVG is
+  inserted inline and its dark modules are painted with the local paper-ink
+  colour.
+- Copying the address is the only clipboard write in the wallet. It happens
+  only when the user clicks "Copy address", and the address itself is public
+  on-chain. Unlike the recovery phrase (see "Onboarding protections"), the
+  address is safe to hand to other software that can read the clipboard.
+
+### Display numbers
+
+All amounts are formatted with one big-int helper
+(`extension/lib/wallet/format.ts`), and each context picks the mode that never
+overstates what is true:
+
+- **Balances** (the Overview) round **down** to six decimals, so the shown
+  balance never claims more than the wallet holds.
+- **The maximum network fee** and **the total, at most** on the cheque round
+  **up** to six decimals, so the shown limit never claims less than can leave.
+  The exact values appear in the field's hover tip and in the cheque's "Exact
+  values" details.
+- **The amount you typed** is parsed with its full 18-decimal precision, and
+  the review screen and the sent receipt show that exact amount, so what you
+  approved is what you see after signing.
+
+A non-zero amount smaller than 0.000001 test ETH displays as `< 0.000001`.
+Formatting works only on integers (`bigint`, wei) so no floating-point
+arithmetic is ever done on balances or amounts.

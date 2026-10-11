@@ -66,6 +66,10 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+.amount-unit {
+  white-space: nowrap;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
