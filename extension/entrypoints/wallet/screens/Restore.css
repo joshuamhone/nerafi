@@ -1,0 +1,15 @@
+.restore-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.restore-confirm input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--foil);
+}

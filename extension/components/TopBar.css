@@ -1,0 +1,67 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.wordmark {
+  font-size: var(--fs-17);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.testnet-pill {
+  position: relative;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: var(--fs-13);
+  color: var(--text);
+  background-color: var(--surface);
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(63, 110, 106, 0.5) 0 1px,
+    transparent 1px 5px
+  );
+}
+
+.lock-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.topbar-lock {
+  min-height: 32px;
+  padding: var(--space-1) var(--space-4);
+}
+
+@media (max-width: 420px) {
+  .topbar {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .lock-state {
+    display: none;
+  }
+}

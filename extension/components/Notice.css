@@ -1,0 +1,25 @@
+.notice {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+  font-size: var(--fs-13);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* Warnings/errors on dark. */
+.notice--alert {
+  border-color: var(--alert);
+  color: var(--alert);
+}
+
+/* On the cheque. */
+.notice--paper {
+  border-color: var(--paper-ink);
+  color: var(--paper-ink);
+}
+
+.notice--paper.notice--alert {
+  border-color: var(--alert-paper);
+  color: var(--alert-paper);
+}

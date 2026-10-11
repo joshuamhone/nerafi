@@ -1,0 +1,10 @@
+.seal {
+  display: inline-flex;
+  flex: none;
+  border-radius: 50%;
+}
+
+.seal svg {
+  width: 100%;
+  height: 100%;
+}

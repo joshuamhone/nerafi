@@ -1,0 +1,39 @@
+.addr {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  color: var(--text);
+}
+
+.addr-visual {
+  word-break: break-word;
+}
+
+.addr-chunk {
+  color: var(--text);
+}
+
+.addr-chunk--alt {
+  color: var(--text-muted);
+}
+
+/* Hashes use a single colour. */
+.addr--hash .addr-chunk--alt {
+  color: var(--text);
+}
+
+/* Paper variant: paper-ink and intaglio-strong (both permitted on paper). */
+.on-paper .addr-chunk {
+  color: var(--paper-ink);
+}
+
+.on-paper .addr-chunk--alt {
+  color: var(--intaglio-strong);
+}
+
+.on-paper.addr--hash .addr-chunk--alt {
+  color: var(--paper-ink);
+}
+
+.addr-chunk:not(:last-child) {
+  margin-right: 0.28em;
+}
