@@ -6,6 +6,7 @@ import { Notice } from '../../../components/Notice';
 import { formatAtMost, formatExact } from '../../../lib/wallet/format';
 import { SEPOLIA_CHAIN_ID } from '../../../lib/wallet/network';
 import type { Review } from '../../../lib/wallet/send';
+import { totalLeavingSentence } from '../../../lib/wallet/reviewCopy';
 import './Review.css';
 
 type ReviewProps = {
@@ -48,8 +49,8 @@ export function ReviewScreen({
           </div>
 
           <p className="cheque-memo">
-            You are sending {formatExact(review.valueWei)} test ETH to the address below. At most{' '}
-            {formatAtMost(review.totalMaxWei)} test ETH will leave your wallet.
+            You are sending {formatExact(review.valueWei)} test ETH to the address below.{' '}
+            {totalLeavingSentence(review.totalMaxWei)}
           </p>
 
           <dl className="cheque-fields">

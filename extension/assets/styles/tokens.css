@@ -16,6 +16,7 @@
   --paper: #dce3da; /* cheque surface only */
   --paper-ink: #1b2a28; /* text on paper */
   --intaglio: #3f6e6a; /* DECORATIVE ONLY: guilloche lines, seal engraving */
+  --intaglio-light: #5A8A85; /* decorative only; 3.75:1 on --surface; used for the auth seal */
   --foil: #d4b055; /* primary buttons only */
 
   /* Role-restricted additions. */

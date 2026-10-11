@@ -1,3 +1,10 @@
+.receive-width {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 560px;
+}
+
 .receive-card {
   display: flex;
   flex-direction: column;

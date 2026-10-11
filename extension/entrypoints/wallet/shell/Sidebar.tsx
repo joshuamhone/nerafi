@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import { Button } from '../../../components/Button';
 import {
+  ActivityIcon,
   LockIcon,
   OverviewIcon,
   ReceiveIcon,
@@ -20,6 +21,7 @@ type SidebarProps = {
 
 const NAV: Array<{ route: Route; label: string; Icon: ComponentType<IconProps> }> = [
   { route: 'overview', label: 'Overview', Icon: OverviewIcon },
+  { route: 'activity', label: 'Activity', Icon: ActivityIcon },
   { route: 'send', label: 'Send', Icon: SendIcon },
   { route: 'receive', label: 'Receive', Icon: ReceiveIcon },
 ];

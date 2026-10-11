@@ -17,9 +17,18 @@
 }
 
 .auth-seal {
-  width: 220px;
-  height: 220px;
-  opacity: 0.3;
+  width: 280px;
+  height: 280px;
+}
+
+/* Auth seal only: a heavier, brighter engraved line, at full opacity.
+   Decorative only, never text or focus. Scoped so the cheque and the
+   sidebar logo keep the shared guilloche treatment. */
+.auth-seal .guilloche path {
+  stroke: var(--intaglio-light);
+  stroke-width: 1.25px;
+  opacity: 1;
+  vector-effect: non-scaling-stroke;
 }
 
 .auth-brand-name {
