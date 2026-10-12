@@ -67,6 +67,12 @@
   font-size: var(--fs-13);
 }
 
+.cheque-own-account {
+  margin-top: var(--space-2);
+  font-size: var(--fs-13);
+  color: var(--intaglio-strong);
+}
+
 .cheque-memo {
   margin: var(--space-4) 0 0;
   font-size: var(--fs-21);

@@ -9,6 +9,7 @@ export type SendErrorField = 'recipient' | 'amount' | 'form' | '';
 type SendProps = {
   address: string;
   recipient: string;
+  recipientAccountName: string | null;
   amount: string;
   error: string;
   errorField: SendErrorField;
@@ -22,6 +23,7 @@ type SendProps = {
 export function Send({
   address,
   recipient,
+  recipientAccountName,
   amount,
   error,
   errorField,
@@ -56,6 +58,10 @@ export function Send({
           spellCheck={false}
           error={errorField === 'recipient' ? error : undefined}
         />
+
+        {recipientAccountName !== null && (
+          <p className="send-own-account">Your account: {recipientAccountName}</p>
+        )}
 
         <Field
           id="amount"

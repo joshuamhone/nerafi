@@ -89,8 +89,9 @@ export async function submitTransfer(
   deps: { client: TransferClient },
   phrase: string,
   review: Review,
+  accountIndex: number = 0,
 ): Promise<Hex> {
-  const account = mnemonicToAccount(phrase);
+  const account = mnemonicToAccount(phrase, { addressIndex: accountIndex });
   if (account.address.toLowerCase() !== review.from.toLowerCase()) {
     throw new Error('The recovery phrase does not match this wallet.');
   }

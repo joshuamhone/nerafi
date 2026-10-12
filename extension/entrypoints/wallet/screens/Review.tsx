@@ -12,6 +12,7 @@ import './Review.css';
 type ReviewProps = {
   review: Review;
   address: string;
+  recipientAccountName: string | null;
   password: string;
   error: string;
   busy: boolean;
@@ -23,6 +24,7 @@ type ReviewProps = {
 export function ReviewScreen({
   review,
   address,
+  recipientAccountName,
   password,
   error,
   busy,
@@ -58,6 +60,9 @@ export function ReviewScreen({
               <dt>Pay to</dt>
               <dd>
                 <AddressText value={review.to} onPaper />
+                {recipientAccountName !== null && (
+                  <span className="cheque-own-account">Your account: {recipientAccountName}</span>
+                )}
               </dd>
             </div>
 

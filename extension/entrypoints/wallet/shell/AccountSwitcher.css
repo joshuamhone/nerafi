@@ -1,0 +1,116 @@
+.account-switcher {
+  position: relative;
+  padding: var(--space-1) var(--space-2);
+}
+
+.account-switcher-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-input);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-switcher-button:hover {
+  background: var(--surface-raised);
+}
+
+.account-switcher-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.account-switcher-label {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.account-switcher-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  font-size: var(--fs-15);
+}
+
+.account-switcher-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% - 2px);
+  left: var(--space-2);
+  right: var(--space-2);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  max-height: 340px;
+  padding: var(--space-1);
+  overflow-y: auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+
+.account-menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--space-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-input);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-menu-item:hover {
+  background: var(--surface);
+}
+
+.account-menu-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.account-menu-item--active {
+  box-shadow: inset 2px 0 0 0 var(--foil);
+}
+
+.account-menu-name {
+  font-size: var(--fs-15);
+}
+
+.account-menu-address {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.account-menu-separator {
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+  background: var(--line);
+}
+
+.account-menu-item--action {
+  font-size: var(--fs-15);
+}
+
+@media (max-width: 899px) {
+  .account-switcher {
+    display: none;
+  }
+}

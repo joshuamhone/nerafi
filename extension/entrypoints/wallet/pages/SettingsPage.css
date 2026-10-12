@@ -1,0 +1,148 @@
+.settings-width {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 640px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.settings-help {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.settings-note {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.settings-empty {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.settings-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+}
+
+.settings-account {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.settings-account-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 28px;
+}
+
+.settings-account-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-15);
+}
+
+.settings-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.settings-account-active {
+  padding: 1px var(--space-2);
+  font-size: var(--fs-13);
+  color: var(--text);
+  border: 1px solid var(--text);
+  border-radius: var(--radius-input);
+}
+
+.settings-account-address {
+  font-size: var(--fs-13);
+  overflow-wrap: anywhere;
+}
+
+.settings-rename {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.settings-rename-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.settings-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.settings-label {
+  font-size: var(--fs-15);
+  color: var(--text-muted);
+}
+
+.settings-select {
+  padding: var(--space-2);
+  font-size: var(--fs-15);
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+}
+
+.settings-select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.settings-log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 320px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.settings-log-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-log-time {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.settings-log-label {
+  font-size: var(--fs-15);
+}

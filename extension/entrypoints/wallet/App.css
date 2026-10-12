@@ -79,6 +79,12 @@
   gap: var(--space-4);
 }
 
+.send-own-account {
+  margin-top: calc(-1 * var(--space-2));
+  font-size: var(--fs-13);
+  color: var(--text);
+}
+
 @media (max-width: 420px) {
   .main {
     padding: var(--space-5) var(--space-4) var(--space-6);
