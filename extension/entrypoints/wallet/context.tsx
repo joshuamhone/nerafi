@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { isAddress } from 'viem';
+import type { StoredAccount } from '../../lib/wallet/accounts';
 import { createSepoliaClient, SEPOLIA_CHAIN_ID, SEPOLIA_RPC_URL } from '../../lib/wallet/network';
 
 export type NetworkStatus = 'checking' | 'reachable' | 'unreachable';
@@ -16,6 +17,11 @@ type WalletContextValue = {
   rpcHost: string;
   refresh: () => void;
   lock: () => void;
+  accounts: StoredAccount[];
+  activeIndex: number;
+  switchAccount: (index: number) => void;
+  manageAccounts: () => void;
+  addAccount: () => void;
 };
 
 const WalletContext = createContext<WalletContextValue | null>(null);
@@ -31,10 +37,24 @@ function rpcHost(): string {
 type WalletProviderProps = {
   address: string;
   onLock: () => void;
+  accounts: StoredAccount[];
+  activeIndex: number;
+  onSwitchAccount: (index: number) => void;
+  onManageAccounts: () => void;
+  onAddAccount: () => void;
   children: ReactNode;
 };
 
-export function WalletProvider({ address, onLock, children }: WalletProviderProps) {
+export function WalletProvider({
+  address,
+  onLock,
+  accounts,
+  activeIndex,
+  onSwitchAccount,
+  onManageAccounts,
+  onAddAccount,
+  children,
+}: WalletProviderProps) {
   const [balanceWei, setBalanceWei] = useState<bigint | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [balanceError, setBalanceError] = useState('');
@@ -99,6 +119,11 @@ export function WalletProvider({ address, onLock, children }: WalletProviderProp
     rpcHost: rpcHost(),
     refresh,
     lock,
+    accounts,
+    activeIndex,
+    switchAccount: onSwitchAccount,
+    manageAccounts: onManageAccounts,
+    addAccount: onAddAccount,
   };
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

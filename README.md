@@ -22,6 +22,9 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
   transaction detail view fed by the public Blockscout explorer API, a
   recent-activity panel on the Overview, and local sent records that show as
   pending until the explorer indexes them.
+- **Milestone 6 — complete:** multiple accounts under one phrase, a Settings page
+  (auto-lock interval and change password), unlock backoff, a local security log,
+  and a sidebar account switcher.
 
 ## Features
 
@@ -43,7 +46,8 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **Lock and unlock.** The wallet unlocks with the password and keeps only the
   wallet address and an expiry time in `chrome.storage.session` (in memory only)
   while it is open; the recovery phrase is not kept there.
-- **Auto-lock.** The wallet locks 15 minutes after unlocking.
+- **Auto-lock.** The wallet locks 15 minutes after unlocking by default; the
+  interval (1/5/15/30/60 minutes) is chosen on the Settings page.
 - **Restore.** An existing recovery phrase can be restored, with a confirmation
   that this replaces the saved wallet.
 - **One extension permission.** The manifest requests only `storage`.
@@ -108,6 +112,28 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **Never truncated addresses.** Every activity row and the detail view render
   the full counterparty and transaction addresses with the same chunked display
   used everywhere else, so a changed character stays easy to spot.
+
+**Milestone 6 — accounts and session security**
+
+- **Multiple accounts.** Up to ten accounts are derived from the one recovery
+  phrase at `m/44'/60'/0'/0/{index}`. The sidebar switcher shows each account by
+  name and full address; adding an account asks for the password, renaming only
+  changes the local label. Activity and self-send hints follow the active
+  account.
+- **Settings page** (`#/settings`). Choose the auto-lock interval, rename accounts,
+  add an account, and change the password. Shortening the auto-lock applies to the
+  current session at once; lengthening it waits for the next unlock so a session
+  can never be extended without the password.
+- **Unlock backoff.** After five consecutive wrong passwords, unlocking is delayed
+  (30 seconds, doubling, capped at 15 minutes); the field is disabled with a live
+  countdown, and a refused attempt does not derive a key or count again.
+- **Change password.** The current password is verified, the new one must meet the
+  policy and differ, and the vault is re-encrypted with a fresh salt and IV that is
+  verified to round-trip before it replaces the old one.
+- **Local security log.** The last 200 events (unlock, lock, auto-lock, failed
+  unlock, lockout, password/account/auto-lock changes, address mismatch, restore)
+  are recorded locally with fixed-format details only — never addresses, amounts,
+  names, passwords, or phrases.
 
 ## Design
 
@@ -183,11 +209,11 @@ extension/
     popup/            Popup with the "Open wallet" button.
     wallet/           Full-page UI shell and state machine (App.tsx).
       screens/        Full-screen views (welcome, reveal, review, send, ...).
-      pages/          Shell pages: Overview, Receive, and Activity.
-      shell/          Sidebar and the app-shell layout.
+      pages/          Shell pages: Overview, Receive, Activity, and Settings.
+      shell/          Sidebar, app-shell layout, account switcher, and dialogs.
       AuthLayout.tsx  Split brand/task layout for the onboarding screens.
-      context.tsx     Wallet state (balance, network) with refresh.
-      router.ts       Hash routes: overview, activity, send, receive.
+      context.tsx     Wallet state (balance, network, accounts) with refresh.
+      router.ts       Hash routes: overview, activity, send, receive, settings.
     background.ts     Background service worker.
   components/         Shared UI (Button, Field, AddressText, Guilloche, ...).
   assets/styles/      Design tokens and base styles.
@@ -196,6 +222,10 @@ extension/
     confirm.ts        Random confirmation-word selection and answer checking.
     vault.ts          Password-based encryption and decryption of the phrase.
     storage.ts        chrome.storage wrappers for the vault and session.
+    accounts.ts       Multiple accounts, names, migration, and the account session.
+    settings.ts       Auto-lock interval settings and their persistence.
+    unlock.ts         Central password check (openVault) and unlock backoff.
+    securityLog.ts    Local security-event log (last 200, fixed-format details).
     network.ts        Sepolia chain ID, RPC client, and balance lookup.
     send.ts           Recipient/amount parsing, review building, and signing.
     format.ts         Big-int formatting for display (down, up, exact).
@@ -212,6 +242,10 @@ extension/
     confirm.test.ts   Tests for confirmation-word selection and checking.
     vault.test.ts     Tests for encryption, decryption, and parsing.
     storage.test.ts   Tests for the storage wrappers.
+    accounts.test.ts  Tests for account storage, migration, and switching.
+    settings.test.ts  Tests for auto-lock settings and their effects.
+    unlock.test.ts    Tests for the password check and unlock backoff.
+    securityLog.test.ts  Tests for the security log and its bounds.
     network.test.ts   Tests for the Sepolia chain-ID check.
     send.test.ts      Tests for parsing, review math, and signing.
     format.test.ts    Tests for number formatting bounds and properties.

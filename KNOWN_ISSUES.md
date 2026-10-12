@@ -39,11 +39,11 @@ the visual work; the icons are inline SVG with no image files.
 
 ## Unlocked session holds only the address
 
-**Accepted, with mitigations.** While the wallet is unlocked, `chrome.storage.session` holds only the wallet address and an expiry timestamp. The recovery phrase was removed from the session once sending began requiring the password, because no feature needs the phrase in session storage. The phrase is now decrypted from the vault only at unlock (to verify the password and derive the address) and at signing, and is not kept afterwards. Session storage is in memory only, is cleared when the browser closes, and defaults to the `TRUSTED_CONTEXTS` access level, so content scripts and web pages cannot read it. What is exposed for the unlock window is the public address, which is on-chain data.
+**Accepted, with mitigations.** While the wallet is unlocked, `chrome.storage.session` holds only the active wallet address, the verified account addresses, and an expiry timestamp. The recovery phrase was removed from the session once sending began requiring the password, because no feature needs the phrase in session storage. The phrase is now decrypted from the vault only through `openVault` while checking a password — at unlock, at signing, when adding an account, and when changing the password — and is not kept afterwards. Session storage is in memory only, is cleared when the browser closes, and defaults to the `TRUSTED_CONTEXTS` access level, so content scripts and web pages cannot read it. What is exposed for the unlock window is public on-chain data (addresses).
 
 ## Auto-lock is enforced on read, not by a timer
 
-**Accepted limitation.** The 15-minute auto-lock is checked whenever the unlocked state is read (`getUnlockedAddress`), and the wallet page re-checks every 30 seconds while it is open. If no Nerafi page reads the session, the unlocked flag and address can remain in `chrome.storage.session` past the 15-minute mark until the next read or until the browser closes. The recovery phrase is not in the session, so it cannot outlive the window; only the unlocked flag and address can. A precise timer would require the `alarms` permission, which was deliberately not added to keep the extension's permission list to exactly `storage`.
+**Accepted limitation.** The auto-lock window (15 minutes by default, set to 1/5/15/30/60 minutes on the Settings page) is checked whenever the unlocked state is read (`readSession`), and the wallet page re-checks every 30 seconds while it is open. If no Nerafi page reads the session, the unlocked flag, the account addresses, and the expiry can remain in `chrome.storage.session` past the window until the next read or until the browser closes. The recovery phrase is not in the session, so it cannot outlive the window; only the unlocked flag and addresses can. A precise timer would require the `alarms` permission, which was deliberately not added to keep the extension's permission list to exactly `storage`.
 
 ## Public RPC operator sees the address, requests, and IP
 
@@ -120,3 +120,15 @@ page and is not guessed into the list).
 ## Opening the Etherscan link shares data with Etherscan
 
 **Accepted, user-initiated.** The "View on Sepolia Etherscan" link opens `sepolia.etherscan.io` in a new tab. Following it reveals the transaction hash and the wallet address to Etherscan, which is what an explorer is for. The link is only followed when the user clicks it; Nerafi itself never contacts Etherscan.
+
+## Unlock backoff is a UI throttle, not a strong defense
+
+**Accepted limitation.** After five consecutive wrong passwords, unlocking is delayed with an exponentially growing wait (30 seconds, doubling, capped at 15 minutes). The delay slows guessing from the UI, but it is not a real defense against an attacker who has a copy of the vault file: that attacker can attempt decryption offline, where PBKDF2's 600,000 iterations are the only cost. The delay is stored in `chrome.storage.local["nerafi.unlockGuard"]`, which the attacker can also edit or delete, and it is measured against the system clock, so changing the system clock can shorten or end a lockout. It is a usability-facing guardrail, not a cryptographic control.
+
+## The security log is local and not tamper-proof
+
+**Accepted limitation.** `chrome.storage.local["nerafi.securityLog"]` keeps the last 200 events (locks, unlocks, failed attempts, lockouts, password/account/auto-lock changes, address mismatches, restores) with a type, timestamp, and a short fixed-format detail. It never contains addresses, amounts, user names, passwords, phrases, or keys, and there is deliberately no "clear log" button. Because it lives in this browser profile, anyone with access to the profile can read, alter, or clear it. It is a convenience history, not a tamper-evident audit trail.
+
+## All accounts share one recovery phrase
+
+**Accepted by design.** Up to ten accounts are derived from the one recovery phrase at `m/44'/60'/0'/0/{index}`. They are separate addresses, not separate secrets: anyone who learns the phrase controls every account, and a compromise of one account's key is a compromise of all of them. The password protects access through the UI, but it does not create per-account isolation. Account names are local display labels only and carry no security meaning.

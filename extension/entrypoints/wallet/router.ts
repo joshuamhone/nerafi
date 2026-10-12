@@ -1,4 +1,4 @@
-export type Route = 'overview' | 'activity' | 'send' | 'receive';
+export type Route = 'overview' | 'activity' | 'send' | 'receive' | 'settings';
 
 export const DEFAULT_ROUTE: Route = 'overview';
 
@@ -10,6 +10,7 @@ export function parseRoute(hash: string): Route {
   value = value.trim();
   if (value === '/send' || value === 'send') return 'send';
   if (value === '/receive' || value === 'receive') return 'receive';
+  if (value === '/settings' || value === 'settings') return 'settings';
   if (
     value === '/activity' ||
     value === 'activity' ||

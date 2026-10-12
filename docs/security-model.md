@@ -13,19 +13,24 @@ and can be locked and unlocked. Milestone 3 adds Sepolia balance display and
 sending test ETH. Milestone 4 adds the app shell with sidebar navigation, the
 overview and receive pages, a locally rendered QR code, and one consistent way
 of displaying amounts. Milestone 5 adds activity history from a public
-explorer, a transaction detail view, and local sent records.
+explorer, a transaction detail view, and local sent records. Milestone 6 adds
+multiple accounts under one recovery phrase, a Settings page (auto-lock and
+change password), unlock backoff, and a local security log.
 
 What Nerafi does today:
 
 - Generates a 12-word BIP-39 recovery phrase on request.
 - Validates the phrase's wordlist membership and checksum.
-- Derives a single address at the BIP-44 path `m/44'/60'/0'/0/0`.
+- Derives addresses at the BIP-44 path `m/44'/60'/0'/0/{index}`. The first
+  account is `m/44'/60'/0'/0/0`; up to ten accounts share one phrase.
 - Asks the user to confirm three randomly chosen words from their written copy.
 - Encrypts the phrase with a password and saves the encrypted vault, plus the
   public address, in `chrome.storage.local`.
-- Holds only the unlocked address and an expiry time in `chrome.storage.session`
-  (in memory only) so the wallet can stay open while unlocked, and clears it on
-  lock, on browser close, and when its 15-minute auto-lock window has passed.
+- Holds only the unlocked address, the verified account addresses, and an expiry
+  time in `chrome.storage.session` (in memory only) so the wallet can stay open
+  while unlocked, and clears it on lock, on browser close, and when its auto-lock
+  window has passed. The window is 15 minutes by default and is chosen on the
+  Settings page.
 - Reads the wallet's Sepolia balance from one public RPC endpoint.
 - Shows the balance and address on an overview page, refreshing them only on
   unlock or on the user pressing refresh.
@@ -259,25 +264,30 @@ Before the phrase is encrypted, the password is checked and normalized:
 - While unlocked, `chrome.storage.session` holds only the wallet address and an
   expiry timestamp 15 minutes in the future. The recovery phrase is never written
   to the session.
-- The phrase is decrypted from the vault at exactly two moments: during unlock
-  (to verify the password and derive the address) and during signing. Each time
-  it is a local variable for the duration of that operation and is not kept
-  afterwards. The JavaScript memory caveat applies during those windows (see
-  "Known limitations").
+- The phrase is decrypted from the vault only through one function, `openVault`,
+  and only while checking a password: during unlock (to verify the password and
+  derive the addresses), before signing, when adding an account, and when
+  changing the password. Each time it is a local variable for the duration of
+  that operation and is not kept afterwards. The JavaScript memory caveat applies
+  during those windows (see "Known limitations").
 - The wallet page reads the session address to decide whether it is unlocked. The
   unlocked screen itself does **not** keep the phrase.
 - Pressing "Lock" removes the session entry immediately.
 
 ### Auto-lock
 
-The auto-lock window is **15 minutes** (see `AUTO_LOCK_MS`). Expiry is enforced
-whenever the unlocked state is read: if the current time is at or past the
-expiry, the session entry is removed and treated as locked. The wallet page also
-re-checks once every 30 seconds while the unlocked screen is open. If no page
+The auto-lock window is **15 minutes** by default and can be set to 1, 5, 15,
+30, or 60 minutes on the Settings page (see `AUTO_LOCK_MS` and `autoLockMs`).
+Expiry is enforced whenever the unlocked state is read: if the current time is at
+or past the expiry, the session entry is removed and treated as locked. The
+wallet page also re-checks once every 30 seconds while the unlocked screen is
+open. Shortening the window applies to the current session immediately (the
+expiry is pulled in to the shorter time); lengthening it takes effect only at the
+next unlock, so the window can never be extended without the password. If no page
 reads the session, the only thing that can outlive the window is the unlocked
-address and expiry, not the phrase. A precise timer would need the `alarms`
-permission, which Nerafi deliberately does not request; the trade-off is noted in
-`KNOWN_ISSUES.md`.
+address, the account addresses, and the expiry, not the phrase. A precise timer
+would need the `alarms` permission, which Nerafi deliberately does not request;
+the trade-off is noted in `KNOWN_ISSUES.md`.
 
 ### Failure behavior
 
@@ -492,3 +502,94 @@ overstates what is true:
 A non-zero amount smaller than 0.000001 test ETH displays as `< 0.000001`.
 Formatting works only on integers (`bigint`, wei) so no floating-point
 arithmetic is ever done on balances or amounts.
+
+## Accounts and session security (Milestone 6)
+
+### Multiple accounts, one phrase
+
+- Up to ten accounts are derived from the single recovery phrase at the BIP-44
+  paths `m/44'/60'/0'/0/0` through `m/44'/60'/0'/0/9`. They all share the same
+  phrase and private-key material; only the derivation index differs. There is no
+  separate secret per account, so a name is never a security boundary.
+- On every unlock, Nerafi re-derives all stored accounts from the decrypted
+  phrase. If a stored account's address does not match its derived address, the
+  stored copy is overwritten from the derived value and a tamper warning is
+  recorded in the security log. A tampered address can therefore not survive an
+  unlock.
+- Local account names and their addresses live in
+  `chrome.storage.local["nerafi.accounts"]`. These are a display convenience, not
+  trusted state: the address used for signing is always re-derived from the
+  phrase, and a strict parser drops any entry it cannot validate.
+- `nerafi.activeAccount` remembers which account was last used. It is only a
+  preference; on the next unlock it selects the starting account and falls back
+  to the first one if the stored index is out of range. Switching accounts in an
+  unlocked session updates the active address in the session entry **without**
+  extending its expiry, so switching cannot be used to prolong a session.
+- When the wallet page loads an existing session, the active account is the
+  verified account that matches `nerafi.session.address`, not whatever
+  `nerafi.activeAccount` says. If the session address is not in the verified list,
+  the wallet locks instead of trusting it.
+- The "Your account: <name>" hint on the send form and the review cheque is shown
+  only when the recipient address is in the verified session list — the addresses
+  the phrase actually derived at unlock. The name comes from local storage, but a
+  local entry alone (for example, a tampered entry naming a stranger's address
+  "Account 2") never produces a hint.
+
+### Adding an account needs the password
+
+Adding an account derives a new address from the phrase, so it requires the
+password, verified through the same `openVault` path as unlock. Renaming an
+account changes only its local label and needs no password.
+
+### Unlock backoff
+
+Repeated wrong passwords trigger a delay instead of unlimited attempts:
+
+- The first four consecutive failures carry no delay.
+- From the fifth consecutive failure, the delay is
+  `min(30 seconds × 2^(failures − 5), 15 minutes)`: 30 seconds, then 1 minute,
+  then 2 minutes, and so on up to a 15-minute cap.
+- While the delay is active, a further attempt is refused with a lockout error
+  **without deriving a key or counting another failure**, so the delay cannot be
+  reset by hammering the field. The unlock field and button are disabled and a
+  live countdown is shown.
+- A successful unlock resets the counter.
+- Restoring a wallet (which does not use the stored vault) stays available and
+  also resets the guard.
+
+The counter is stored in `chrome.storage.local["nerafi.unlockGuard"]`. A throttled
+delay slows guessing from the UI but is not a strong defense: an attacker who can
+read the vault file directly can attempt decryption offline and is only limited
+by PBKDF2's cost. The delay is also measured against the system clock, so changing
+the system clock can shorten or end a lockout. This is stated plainly in
+`KNOWN_ISSUES.md`.
+
+### Security log
+
+- `chrome.storage.local["nerafi.securityLog"]` keeps the most recent 200 events
+  (older entries are dropped) with a type, a timestamp, and an optional short
+  detail. The types are lock/unlock, auto-lock, failed unlock, lockout started,
+  password changed, account added, account renamed, auto-lock changed, address
+  mismatch, and wallet restored.
+- Details are only fixed formats such as `"Account 3"` or `"5 minutes"`. The log
+  never contains addresses, amounts, user-entered names, passwords, phrases, or
+  keys.
+- A failure to write the log is swallowed: logging never blocks, delays, or
+  breaks the operation that triggered it.
+- The log is local to this browser profile and is not a tamper-proof audit trail;
+  anyone with access to the profile can read or clear it. There is deliberately no
+  "clear log" button in the UI.
+
+### Change password
+
+Changing the password verifies the current one through `openVault` (so it counts
+toward the unlock backoff), requires the new password to pass the same policy and
+to differ from the current one, and encrypts the phrase again with a fresh salt
+and IV. The new vault is decrypted once to confirm the new password really
+round-trips before it is saved; that round-trip check is done inside the
+encryption helper, which accepts a phrase and a new password and returns the
+verified vault, so no exported function accepts an arbitrary vault plus a password
+guess. Until the check passes, the existing vault is left untouched, so a failed
+change never locks the user out. The stored address hint is left exactly as it
+was — it always names the account that was active — so a password change never
+moves the hint to another account.

@@ -123,12 +123,15 @@ export async function mergeLocalRecords(page: HistoryPage, account: string): Pro
     if (item.timestamp === null) continue;
     if (oldestOnPage === null || item.timestamp < oldestOnPage) oldestOnPage = item.timestamp;
   }
+  const own = account.toLowerCase();
   const localItems: ActivityItem[] = [];
   for (const record of records) {
     if (seen.has(record.hash.toLowerCase())) continue;
     if (page.nextCursor !== null && oldestOnPage !== null && record.createdAt <= oldestOnPage) {
       continue;
     }
+    // Only surface local records that involve the active account.
+    if (record.from.toLowerCase() !== own && record.to.toLowerCase() !== own) continue;
     localItems.push(localRecordToItem(record, account));
   }
   localItems.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));

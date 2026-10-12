@@ -1,15 +1,17 @@
 import { browser } from 'wxt/browser';
 import { isAddress } from 'viem';
 import { deriveAddress } from './account';
+import { appendSecurityLog } from './securityLog';
 import type { EncryptedVault } from './vault';
 
 const VAULT_KEY = 'nerafi.vault';
-const ADDRESS_KEY = 'nerafi.address';
-const SESSION_KEY = 'nerafi.session';
+export const ADDRESS_KEY = 'nerafi.address';
+export const SESSION_KEY = 'nerafi.session';
+export const SESSION_ACCOUNTS_KEY = 'nerafi.sessionAccounts';
 
 export const AUTO_LOCK_MS = 15 * 60 * 1000;
 
-type Session = {
+export type Session = {
   address: string;
   expiresAt: number;
 };
@@ -56,21 +58,43 @@ export async function syncAddress(
   return { address, corrected: true };
 }
 
-export async function setUnlocked(address: string, now: number = Date.now()): Promise<void> {
-  const session: Session = { address, expiresAt: now + AUTO_LOCK_MS };
+export async function setUnlocked(
+  address: string,
+  now: number = Date.now(),
+  durationMs: number = AUTO_LOCK_MS,
+): Promise<void> {
+  const session: Session = { address, expiresAt: now + durationMs };
+  await browser.storage.session.set({ [SESSION_KEY]: session });
+}
+
+export async function readSession(now: number = Date.now()): Promise<Session | null> {
+  const stored = await browser.storage.session.get(SESSION_KEY);
+  const parsed = parseSession(stored[SESSION_KEY]);
+  if (parsed === null) {
+    if (stored[SESSION_KEY] !== undefined) {
+      await browser.storage.session.remove(SESSION_KEY);
+    }
+    return null;
+  }
+  if (now >= parsed.expiresAt) {
+    // The auto-lock read is the one place a session is found already expired,
+    // so record it here (exactly once) before clearing the session material.
+    await browser.storage.session.remove([SESSION_KEY, SESSION_ACCOUNTS_KEY]);
+    await appendSecurityLog('lock_auto', undefined, now);
+    return null;
+  }
+  return parsed;
+}
+
+export async function writeSession(session: Session): Promise<void> {
   await browser.storage.session.set({ [SESSION_KEY]: session });
 }
 
 export async function getUnlockedAddress(now: number = Date.now()): Promise<string | null> {
-  const stored = await browser.storage.session.get(SESSION_KEY);
-  const parsed = parseSession(stored[SESSION_KEY]);
-  if (parsed === null || now >= parsed.expiresAt) {
-    await browser.storage.session.remove(SESSION_KEY);
-    return null;
-  }
-  return parsed.address;
+  const session = await readSession(now);
+  return session === null ? null : session.address;
 }
 
 export async function lock(): Promise<void> {
-  await browser.storage.session.remove(SESSION_KEY);
+  await browser.storage.session.remove([SESSION_KEY, SESSION_ACCOUNTS_KEY]);
 }

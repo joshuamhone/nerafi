@@ -5,21 +5,43 @@ import type { Hex } from 'viem';
 import { createMnemonic, deriveAddress, isValidMnemonic } from '../../lib/wallet/account';
 import { checkConfirmation, pickConfirmationIndices } from '../../lib/wallet/confirm';
 import { saveLocalTx } from '../../lib/wallet/history/local';
-import {
-  decryptPhrase,
-  encryptPhrase,
-  validatePassword,
-  VaultError,
-} from '../../lib/wallet/vault';
+import { encryptPhrase, validatePassword, VaultError } from '../../lib/wallet/vault';
 import {
   getUnlockedAddress,
   hasVault,
   loadVault,
   lock,
   saveVault,
-  setUnlocked,
-  syncAddress,
 } from '../../lib/wallet/storage';
+import {
+  addAccount,
+  defaultAccountName,
+  loadAccounts,
+  loadSessionAccounts,
+  ownAccountLabel,
+  renameAccount,
+  resolveActiveIndex,
+  switchAccount,
+  unlockAccounts,
+} from '../../lib/wallet/accounts';
+import type { SessionAccount, StoredAccount } from '../../lib/wallet/accounts';
+import {
+  autoLockLabel,
+  autoLockMs,
+  changeAutoLock,
+  DEFAULT_SETTINGS,
+  loadSettings,
+} from '../../lib/wallet/settings';
+import type { AutoLockMinutes, Settings } from '../../lib/wallet/settings';
+import { appendSecurityLog, loadSecurityLog } from '../../lib/wallet/securityLog';
+import type { SecurityLogEntry } from '../../lib/wallet/securityLog';
+import {
+  lockoutMessage,
+  openVault,
+  readLockoutUntil,
+  resetGuard,
+} from '../../lib/wallet/unlock';
+import { changePassword } from '../../lib/wallet/changePassword';
 import {
   assertSepolia,
   createSepoliaClient,
@@ -54,6 +76,8 @@ import type { SendStatus } from './screens/Sent';
 import { Overview } from './pages/Overview';
 import { ActivityPage } from './pages/ActivityPage';
 import { Receive } from './pages/ReceivePage';
+import { SettingsPage } from './pages/SettingsPage';
+import { AddAccountDialog } from './shell/AddAccountDialog';
 import './App.css';
 
 type AuthStep =
@@ -136,6 +160,28 @@ function App() {
   const [sendPassword, setSendPassword] = useState('');
   const [txHash, setTxHash] = useState<Hex | null>(null);
   const [txStatus, setTxStatus] = useState<SendStatus>('pending');
+  const [accounts, setAccounts] = useState<StoredAccount[]>([]);
+  const [sessionAccounts, setSessionAccounts] = useState<SessionAccount[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [autoLockNote, setAutoLockNote] = useState('');
+  const [securityLog, setSecurityLog] = useState<SecurityLogEntry[]>([]);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [addAccountOpen, setAddAccountOpen] = useState(false);
+
+  const autoLockDuration = autoLockMs(settings);
+
+  function ownAccountName(value: string): string | null {
+    return ownAccountLabel(value, sessionAccounts, accounts);
+  }
+
+  async function refreshSecurityLog() {
+    setSecurityLog(await loadSecurityLog());
+  }
+
+  async function refreshSessionAccounts() {
+    setSessionAccounts((await loadSessionAccounts()) ?? []);
+  }
 
   function resetSendFlow() {
     setRecipient('');
@@ -176,9 +222,34 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      const loadedSettings = await loadSettings();
+      if (cancelled) return;
+      setSettings(loadedSettings);
+
       const unlockedAddress = await getUnlockedAddress();
       if (cancelled) return;
       if (unlockedAddress !== null) {
+        // The active account of an existing session is whichever verified
+        // session address matches. If the session address is not in the
+        // verified list, the session is not trustworthy: lock the wallet.
+        const [index, storedAccounts, verified] = await Promise.all([
+          resolveActiveIndex(),
+          loadAccounts(),
+          loadSessionAccounts(),
+        ]);
+        if (cancelled) return;
+        if (index === null || verified === null) {
+          await lock();
+          if (cancelled) return;
+          const loaded = await loadVault();
+          setAddress(loaded?.address ?? unlockedAddress);
+          setVaultExists(true);
+          setStep('locked');
+          return;
+        }
+        setAccounts(storedAccounts ?? []);
+        setSessionAccounts(verified);
+        setActiveIndex(index);
         setAddress(unlockedAddress);
         setAddressCorrected(false);
         setVaultExists(true);
@@ -200,6 +271,11 @@ function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (step !== 'unlocked' || route !== 'settings') return;
+    void refreshSecurityLog();
+  }, [step, route]);
 
   useEffect(() => {
     if (step !== 'unlocked') return undefined;
@@ -316,17 +392,23 @@ function App() {
     }
     setBusy(true);
     try {
-      const vault = await encryptPhrase(pendingPhrase, password);
-      const derivedAddress = deriveAddress(pendingPhrase);
+      const phrase = pendingPhrase;
+      const vault = await encryptPhrase(phrase, password);
+      const derivedAddress = deriveAddress(phrase);
       await saveVault(vault, derivedAddress);
-      await setUnlocked(derivedAddress);
-      setAddress(derivedAddress);
+      const unlocked = await unlockAccounts(phrase, autoLockDuration);
+      await resetGuard();
+      await refreshSessionAccounts();
+      setAccounts(unlocked.accounts);
+      setActiveIndex(unlocked.index);
+      setAddress(unlocked.address);
       setAddressCorrected(false);
       setVaultExists(true);
       setPendingPhrase('');
       setPassword('');
       setConfirmPassword('');
       setError('');
+      if (flow === 'restore') await appendSecurityLog('wallet_restored');
       setFlow(null);
       resetSendFlow();
       setStep('unlocked');
@@ -343,23 +425,32 @@ function App() {
     setError('');
     setBusy(true);
     try {
-      const loaded = await loadVault();
-      if (loaded === null) {
-        setError('Unsupported or damaged vault');
-        return;
-      }
-      const phrase = await decryptPhrase(loaded.vault, password);
-      const synced = await syncAddress(phrase);
-      await setUnlocked(synced.address);
-      setAddress(synced.address);
-      setAddressCorrected(synced.corrected);
+      const phrase = await openVault(password);
+      const unlocked = await unlockAccounts(phrase, autoLockDuration);
+      await refreshSessionAccounts();
+      setAccounts(unlocked.accounts);
+      setActiveIndex(unlocked.index);
+      setAddress(unlocked.address);
+      setAddressCorrected(unlocked.corrected);
+      setLockedUntil(null);
       setPassword('');
       setError('');
+      await appendSecurityLog('unlock');
+      if (unlocked.corrected) await appendSecurityLog('address_mismatch');
       resetSendFlow();
       setStep('unlocked');
       navigate('overview');
     } catch (err) {
-      setError(err instanceof VaultError ? err.message : 'Incorrect password or damaged vault');
+      // Read the guard after any failed attempt: the failure that reaches the
+      // threshold starts the delay on this very attempt, so the countdown must
+      // appear now, not on the next try.
+      const until = await readLockoutUntil();
+      if (until !== null) {
+        setLockedUntil(until);
+        setError('');
+      } else {
+        setError(err instanceof VaultError ? err.message : 'Incorrect password or damaged vault');
+      }
     } finally {
       setBusy(false);
     }
@@ -369,6 +460,7 @@ function App() {
     setBusy(true);
     try {
       await lock();
+      await appendSecurityLog('lock_manual');
       resetSendFlow();
       setPassword('');
       setError('');
@@ -377,6 +469,63 @@ function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleSwitchAccount(index: number) {
+    const result = await switchAccount(index);
+    if (!result.ok) return;
+    resetSendFlow();
+    setActiveIndex(result.index);
+    setAddress(result.address);
+    navigate('overview');
+  }
+
+  async function handleAddAccountSubmit(name: string, password: string): Promise<void> {
+    const phrase = await openVault(password);
+    const rawName = name.trim().length > 0 ? name : undefined;
+    const result = await addAccount(phrase, rawName);
+    if (!result.ok) throw new Error(result.error);
+    setAccounts(result.accounts);
+    await refreshSessionAccounts();
+    await appendSecurityLog('account_added', defaultAccountName(result.account.index));
+    await refreshSecurityLog();
+    setAddAccountOpen(false);
+  }
+
+  async function handleRename(index: number, name: string): Promise<string | null> {
+    const result = await renameAccount(index, name);
+    if (!result.ok) return result.error;
+    const list = await loadAccounts();
+    setAccounts(list ?? []);
+    await appendSecurityLog('account_renamed', defaultAccountName(index));
+    await refreshSecurityLog();
+    return null;
+  }
+
+  async function handleChangeAutoLock(minutes: AutoLockMinutes) {
+    const result = await changeAutoLock(minutes);
+    setSettings({ autoLockMinutes: minutes });
+    setAutoLockNote(
+      result === 'now'
+        ? 'Applied to this session right away.'
+        : 'This longer interval takes effect at your next unlock.',
+    );
+    await appendSecurityLog('auto_lock_changed', autoLockLabel(minutes));
+    await refreshSecurityLog();
+  }
+
+  async function handleChangePassword(
+    current: string,
+    next: string,
+    confirm: string,
+  ): Promise<string | null> {
+    const result = await changePassword(current, next, confirm);
+    await refreshSecurityLog();
+    if (result.ok) return null;
+    // A change password that fails verification is an openVault failure, so it
+    // can start a lockout. Show that immediately with a live-ish remaining time.
+    const until = await readLockoutUntil();
+    return until === null ? result.error : lockoutMessage(until);
   }
 
   function startSend() {
@@ -458,13 +607,13 @@ function App() {
     setReviewError('');
     setBusy(true);
     try {
-      const loaded = await loadVault();
-      if (loaded === null) {
-        setReviewError('Unsupported or damaged vault');
-        return;
-      }
-      const phrase = await decryptPhrase(loaded.vault, sendPassword);
-      const hash = await submitTransfer({ client: createSepoliaClient() }, phrase, review);
+      const phrase = await openVault(sendPassword);
+      const hash = await submitTransfer(
+        { client: createSepoliaClient() },
+        phrase,
+        review,
+        activeIndex,
+      );
       setTxHash(hash);
       setTxStatus('pending');
       setSendStep('sent');
@@ -479,7 +628,12 @@ function App() {
         // A failed local mirror write must not affect the already-broadcast transaction.
       });
     } catch (err) {
-      setReviewError(err instanceof VaultError ? err.message : sendFailureMessage(err));
+      const until = await readLockoutUntil();
+      if (until !== null) {
+        setReviewError(lockoutMessage(until));
+      } else {
+        setReviewError(err instanceof VaultError ? err.message : sendFailureMessage(err));
+      }
     } finally {
       setSendPassword('');
       setBusy(false);
@@ -535,6 +689,7 @@ function App() {
         password={password}
         error={error}
         busy={busy}
+        lockedUntil={lockedUntil}
         onPassword={setPassword}
         onSubmit={submitUnlock}
         onRestore={startRestore}
@@ -553,7 +708,15 @@ function App() {
       {authScreen !== null && <AuthLayout>{authScreen}</AuthLayout>}
 
       {step === 'unlocked' && (
-        <WalletProvider address={address} onLock={() => void handleLock()}>
+        <WalletProvider
+          address={address}
+          onLock={() => void handleLock()}
+          accounts={accounts}
+          activeIndex={activeIndex}
+          onSwitchAccount={(index) => void handleSwitchAccount(index)}
+          onManageAccounts={() => navigate('settings')}
+          onAddAccount={() => setAddAccountOpen(true)}
+        >
           <AppShell route={route} busy={busy}>
             {route === 'overview' && (
               <Overview
@@ -567,6 +730,7 @@ function App() {
               <Send
                 address={address}
                 recipient={recipient}
+                recipientAccountName={ownAccountName(recipient)}
                 amount={amount}
                 error={sendError}
                 errorField={sendErrorField}
@@ -582,6 +746,7 @@ function App() {
               <ReviewScreen
                 review={review}
                 address={address}
+                recipientAccountName={ownAccountName(review.to)}
                 password={sendPassword}
                 error={reviewError}
                 busy={busy}
@@ -610,7 +775,30 @@ function App() {
             )}
 
             {route === 'receive' && <Receive />}
+
+            {route === 'settings' && (
+              <SettingsPage
+                accounts={accounts}
+                activeIndex={activeIndex}
+                autoLockMinutes={settings.autoLockMinutes}
+                autoLockNote={autoLockNote}
+                log={securityLog}
+                onRename={handleRename}
+                onSwitchAccount={(index) => void handleSwitchAccount(index)}
+                onAddAccount={() => setAddAccountOpen(true)}
+                onChangeAutoLock={(minutes) => void handleChangeAutoLock(minutes)}
+                onChangePassword={handleChangePassword}
+                onLockNow={() => void handleLock()}
+              />
+            )}
           </AppShell>
+
+          {addAccountOpen && (
+            <AddAccountDialog
+              onSubmit={handleAddAccountSubmit}
+              onClose={() => setAddAccountOpen(false)}
+            />
+          )}
         </WalletProvider>
       )}
 

@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { AddressText } from '../../../components/AddressText';
 import { Button } from '../../../components/Button';
 import { Field } from '../../../components/Field';
 import { Notice } from '../../../components/Notice';
+import { lockoutMessage, readLockoutUntil } from '../../../lib/wallet/unlock';
 import './Locked.css';
 
 type LockedProps = {
@@ -10,6 +12,7 @@ type LockedProps = {
   password: string;
   error: string;
   busy: boolean;
+  lockedUntil: number | null;
   onPassword: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
   onRestore: () => void;
@@ -20,10 +23,40 @@ export function Locked({
   password,
   error,
   busy,
+  lockedUntil,
   onPassword,
   onSubmit,
   onRestore,
 }: LockedProps) {
+  const [now, setNow] = useState(() => Date.now());
+  const [guardUntil, setGuardUntil] = useState<number | null>(null);
+
+  // A page reload must not hide a lockout that is still ticking, so read the
+  // stored guard on mount. The prop (set by a just-failed attempt) wins.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const until = await readLockoutUntil();
+      if (!cancelled) setGuardUntil(until);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const until = lockedUntil ?? guardUntil;
+
+  useEffect(() => {
+    if (until === null) return undefined;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [until]);
+
+  const remaining = until === null ? 0 : until - now;
+  const lockedOut = remaining > 0;
+  const lockoutText = until === null ? '' : lockoutMessage(until, now);
+
   return (
     <section className="screen">
       <header className="screen-header">
@@ -47,12 +80,15 @@ export function Locked({
           spellCheck={false}
           autoCorrect="off"
           autoCapitalize="off"
+          disabled={busy || lockedOut}
         />
 
-        {error && <Notice variant="alert">{error}</Notice>}
+        {lockedOut && <Notice variant="alert">{lockoutText}</Notice>}
+
+        {!lockedOut && error && <Notice variant="alert">{error}</Notice>}
 
         <div className="actions">
-          <Button variant="primary" type="submit" disabled={busy}>
+          <Button variant="primary" type="submit" disabled={busy || lockedOut}>
             Unlock
           </Button>
         </div>

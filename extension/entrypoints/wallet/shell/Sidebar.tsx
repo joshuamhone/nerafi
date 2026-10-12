@@ -6,12 +6,14 @@ import {
   OverviewIcon,
   ReceiveIcon,
   SendIcon,
+  SettingsIcon,
 } from '../../../components/icons';
 import type { IconProps } from '../../../components/icons';
 import { Seal } from '../../../components/Seal';
 import { useWallet } from '../context';
 import type { Route } from '../router';
 import { routeHref } from '../router';
+import { AccountSwitcher } from './AccountSwitcher';
 import './Sidebar.css';
 
 type SidebarProps = {
@@ -24,6 +26,7 @@ const NAV: Array<{ route: Route; label: string; Icon: ComponentType<IconProps> }
   { route: 'activity', label: 'Activity', Icon: ActivityIcon },
   { route: 'send', label: 'Send', Icon: SendIcon },
   { route: 'receive', label: 'Receive', Icon: ReceiveIcon },
+  { route: 'settings', label: 'Settings', Icon: SettingsIcon },
 ];
 
 export function Sidebar({ route, busy }: SidebarProps) {
@@ -36,10 +39,7 @@ export function Sidebar({ route, busy }: SidebarProps) {
         <span className="sidebar-wordmark">Nerafi</span>
       </div>
 
-      <div className="sidebar-account">
-        <span className="sidebar-account-label">Account</span>
-        <span className="sidebar-account-name">Account 1</span>
-      </div>
+      <AccountSwitcher />
 
       <nav className="sidebar-nav" aria-label="Main">
         {NAV.map(({ route: itemRoute, label, Icon }) => {
