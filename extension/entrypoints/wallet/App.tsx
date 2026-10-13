@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
 import { isAddress } from 'viem';
 import type { Hex } from 'viem';
@@ -18,7 +18,6 @@ import {
   defaultAccountName,
   loadAccounts,
   loadSessionAccounts,
-  ownAccountLabel,
   renameAccount,
   resolveActiveIndex,
   switchAccount,
@@ -56,6 +55,13 @@ import {
 } from '../../lib/wallet/send';
 import type { Review } from '../../lib/wallet/send';
 import { normalizePhraseInput } from '../../lib/wallet/input';
+import { addContact, checkNewContact, loadContacts, removeContact, renameContact } from '../../lib/wallet/contacts';
+import type { Contact, NewContactResult } from '../../lib/wallet/contacts';
+import { loadSentRecipients, recordSentRecipient } from '../../lib/wallet/sentRecipients';
+import type { SentRecipient } from '../../lib/wallet/sentRecipients';
+import { buildKnown, canSign, classifyRecipient } from '../../lib/wallet/recipientSafety';
+import type { RecipientInfo } from '../../lib/wallet/recipientSafety';
+import type { KnownAddress } from '../../lib/wallet/lookalike';
 import { AuthLayout } from './AuthLayout';
 import { WalletProvider, useWallet } from './context';
 import type { Route } from './router';
@@ -76,8 +82,10 @@ import type { SendStatus } from './screens/Sent';
 import { Overview } from './pages/Overview';
 import { ActivityPage } from './pages/ActivityPage';
 import { Receive } from './pages/ReceivePage';
+import { AddressBookPage } from './pages/AddressBookPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AddAccountDialog } from './shell/AddAccountDialog';
+import type { RecipientOption } from './shell/RecipientPicker';
 import './App.css';
 
 type AuthStep =
@@ -98,6 +106,16 @@ const CONFIRM_COUNT = 3;
 function sendFailureMessage(err: unknown): string {
   if (err instanceof NetworkError) return err.message;
   return 'Could not send the transaction. Nothing was signed if the network check failed.';
+}
+
+function recipientInfoFor(
+  value: string,
+  known: KnownAddress[],
+  contacts: Contact[],
+): RecipientInfo | null {
+  const trimmed = value.trim();
+  if (!isAddress(trimmed)) return null;
+  return classifyRecipient(trimmed, known, contacts);
 }
 
 function SentRoute({
@@ -168,12 +186,53 @@ function App() {
   const [securityLog, setSecurityLog] = useState<SecurityLogEntry[]>([]);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [addAccountOpen, setAddAccountOpen] = useState(false);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [sentRecipients, setSentRecipients] = useState<SentRecipient[]>([]);
+  const [lookalikeAck, setLookalikeAck] = useState(false);
 
   const autoLockDuration = autoLockMs(settings);
 
-  function ownAccountName(value: string): string | null {
-    return ownAccountLabel(value, sessionAccounts, accounts);
-  }
+  const known = useMemo(
+    () => buildKnown(sessionAccounts, accounts, contacts, sentRecipients),
+    [sessionAccounts, accounts, contacts, sentRecipients],
+  );
+
+  const ownLabels = useMemo(
+    () =>
+      sessionAccounts.map((session) => ({
+        address: session.address,
+        name:
+          accounts.find((account) => account.index === session.index)?.name ??
+          defaultAccountName(session.index),
+      })),
+    [sessionAccounts, accounts],
+  );
+
+  const recipientOptions = useMemo<RecipientOption[]>(
+    () => [
+      ...ownLabels.map((own) => ({
+        name: own.name,
+        address: own.address,
+        kind: 'account' as const,
+      })),
+      ...contacts.map((contact) => ({
+        name: contact.name,
+        address: contact.address,
+        kind: 'contact' as const,
+      })),
+    ],
+    [ownLabels, contacts],
+  );
+
+  const recipientInfo = useMemo(
+    () => recipientInfoFor(recipient, known, contacts),
+    [recipient, known, contacts],
+  );
+
+  const reviewRecipientInfo = useMemo(
+    () => (review === null ? null : recipientInfoFor(review.to, known, contacts)),
+    [review, known, contacts],
+  );
 
   async function refreshSecurityLog() {
     setSecurityLog(await loadSecurityLog());
@@ -181,6 +240,15 @@ function App() {
 
   async function refreshSessionAccounts() {
     setSessionAccounts((await loadSessionAccounts()) ?? []);
+  }
+
+  async function refreshRecipientData() {
+    const [loadedContacts, loadedSent] = await Promise.all([
+      loadContacts(),
+      loadSentRecipients(),
+    ]);
+    setContacts(loadedContacts);
+    setSentRecipients(loadedSent);
   }
 
   function resetSendFlow() {
@@ -191,6 +259,7 @@ function App() {
     setReview(null);
     setReviewError('');
     setSendPassword('');
+    setLookalikeAck(false);
     setSendStep('form');
   }
 
@@ -253,6 +322,8 @@ function App() {
         setAddress(unlockedAddress);
         setAddressCorrected(false);
         setVaultExists(true);
+        await refreshRecipientData();
+        if (cancelled) return;
         setStep('unlocked');
         navigate('overview');
         return;
@@ -399,6 +470,7 @@ function App() {
       const unlocked = await unlockAccounts(phrase, autoLockDuration);
       await resetGuard();
       await refreshSessionAccounts();
+      await refreshRecipientData();
       setAccounts(unlocked.accounts);
       setActiveIndex(unlocked.index);
       setAddress(unlocked.address);
@@ -428,6 +500,7 @@ function App() {
       const phrase = await openVault(password);
       const unlocked = await unlockAccounts(phrase, autoLockDuration);
       await refreshSessionAccounts();
+      await refreshRecipientData();
       setAccounts(unlocked.accounts);
       setActiveIndex(unlocked.index);
       setAddress(unlocked.address);
@@ -500,6 +573,34 @@ function App() {
     await appendSecurityLog('account_renamed', defaultAccountName(index));
     await refreshSecurityLog();
     return null;
+  }
+
+  function validateContact(address: string): NewContactResult {
+    return checkNewContact(address, { own: ownLabels, existing: contacts, known });
+  }
+
+  async function handleAddContact(address: string, name: string): Promise<string | null> {
+    const result = await addContact(address, name);
+    if (!result.ok) return result.error;
+    setContacts(result.contacts);
+    await appendSecurityLog('contact_added');
+    await refreshSecurityLog();
+    return null;
+  }
+
+  async function handleRenameContact(address: string, name: string): Promise<string | null> {
+    const result = await renameContact(address, name);
+    if (!result.ok) return result.error;
+    setContacts(result.contacts);
+    await appendSecurityLog('contact_renamed');
+    await refreshSecurityLog();
+    return null;
+  }
+
+  async function handleRemoveContact(address: string): Promise<void> {
+    setContacts(await removeContact(address));
+    await appendSecurityLog('contact_removed');
+    await refreshSecurityLog();
   }
 
   async function handleChangeAutoLock(minutes: AutoLockMinutes) {
@@ -604,6 +705,7 @@ function App() {
   async function confirmSend(event: FormEvent) {
     event.preventDefault();
     if (review === null) return;
+    if (!canSign(reviewRecipientInfo, lookalikeAck)) return;
     setReviewError('');
     setBusy(true);
     try {
@@ -627,6 +729,16 @@ function App() {
       }).catch(() => {
         // A failed local mirror write must not affect the already-broadcast transaction.
       });
+      // The sent-recipient list is written only here, after a real broadcast.
+      recordSentRecipient(review.to)
+        .then(() => loadSentRecipients())
+        .then((list) => setSentRecipients(list))
+        .catch(() => {
+          // Recording the recipient must not affect the already-broadcast transaction.
+        });
+      if (reviewRecipientInfo !== null && reviewRecipientInfo.kind === 'lookalike' && lookalikeAck) {
+        await appendSecurityLog('lookalike_acknowledged');
+      }
     } catch (err) {
       const until = await readLockoutUntil();
       if (until !== null) {
@@ -716,6 +828,7 @@ function App() {
           onSwitchAccount={(index) => void handleSwitchAccount(index)}
           onManageAccounts={() => navigate('settings')}
           onAddAccount={() => setAddAccountOpen(true)}
+          known={known}
         >
           <AppShell route={route} busy={busy}>
             {route === 'overview' && (
@@ -730,12 +843,16 @@ function App() {
               <Send
                 address={address}
                 recipient={recipient}
-                recipientAccountName={ownAccountName(recipient)}
+                recipientInfo={recipientInfo}
+                recipientOptions={recipientOptions}
                 amount={amount}
                 error={sendError}
                 errorField={sendErrorField}
                 busy={busy}
-                onRecipient={setRecipient}
+                onRecipient={(value) => {
+                  setRecipient(value);
+                  setLookalikeAck(false);
+                }}
                 onAmount={setAmount}
                 onSubmit={submitSend}
                 onCancel={cancelSend}
@@ -746,10 +863,12 @@ function App() {
               <ReviewScreen
                 review={review}
                 address={address}
-                recipientAccountName={ownAccountName(review.to)}
+                recipientInfo={reviewRecipientInfo}
+                acknowledged={lookalikeAck}
                 password={sendPassword}
                 error={reviewError}
                 busy={busy}
+                onAcknowledge={setLookalikeAck}
                 onPassword={setSendPassword}
                 onSubmit={confirmSend}
                 onCancel={cancelSend}
@@ -775,6 +894,16 @@ function App() {
             )}
 
             {route === 'receive' && <Receive />}
+
+            {route === 'contacts' && (
+              <AddressBookPage
+                contacts={contacts}
+                validateAddress={validateContact}
+                onAdd={handleAddContact}
+                onRename={handleRenameContact}
+                onRemove={handleRemoveContact}
+              />
+            )}
 
             {route === 'settings' && (
               <SettingsPage

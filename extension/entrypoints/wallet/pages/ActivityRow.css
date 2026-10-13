@@ -44,6 +44,16 @@
   color: var(--alert);
 }
 
+.activity-row-known {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.activity-row-poison {
+  font-size: var(--fs-13);
+  color: var(--alert);
+}
+
 .activity-row-address {
   font-size: 13px;
 }

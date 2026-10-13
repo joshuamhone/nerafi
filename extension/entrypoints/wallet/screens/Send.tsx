@@ -1,15 +1,21 @@
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { AddressText } from '../../../components/AddressText';
 import { Button } from '../../../components/Button';
 import { Field } from '../../../components/Field';
 import { Notice } from '../../../components/Notice';
+import { RecipientNotice } from '../../../components/RecipientNotice';
+import type { RecipientInfo } from '../../../lib/wallet/recipientSafety';
+import { RecipientPicker } from '../shell/RecipientPicker';
+import type { RecipientOption } from '../shell/RecipientPicker';
 
 export type SendErrorField = 'recipient' | 'amount' | 'form' | '';
 
 type SendProps = {
   address: string;
   recipient: string;
-  recipientAccountName: string | null;
+  recipientInfo: RecipientInfo | null;
+  recipientOptions: RecipientOption[];
   amount: string;
   error: string;
   errorField: SendErrorField;
@@ -23,7 +29,8 @@ type SendProps = {
 export function Send({
   address,
   recipient,
-  recipientAccountName,
+  recipientInfo,
+  recipientOptions,
   amount,
   error,
   errorField,
@@ -33,6 +40,8 @@ export function Send({
   onSubmit,
   onCancel,
 }: SendProps) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   return (
     <section className="screen">
       <header className="screen-header">
@@ -57,11 +66,19 @@ export function Send({
           autoCapitalize="off"
           spellCheck={false}
           error={errorField === 'recipient' ? error : undefined}
+          trailing={
+            <Button
+              variant="secondary"
+              className="send-choose"
+              onClick={() => setPickerOpen(true)}
+              disabled={busy}
+            >
+              Choose recipient
+            </Button>
+          }
         />
 
-        {recipientAccountName !== null && (
-          <p className="send-own-account">Your account: {recipientAccountName}</p>
-        )}
+        {recipientInfo !== null && <RecipientNotice info={recipientInfo} address={recipient} />}
 
         <Field
           id="amount"
@@ -87,6 +104,17 @@ export function Send({
           </Button>
         </div>
       </form>
+
+      {pickerOpen && (
+        <RecipientPicker
+          options={recipientOptions}
+          onChoose={(value) => {
+            onRecipient(value);
+            setPickerOpen(false);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </section>
   );
 }

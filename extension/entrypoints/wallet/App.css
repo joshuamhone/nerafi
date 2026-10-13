@@ -79,10 +79,14 @@
   gap: var(--space-4);
 }
 
-.send-own-account {
-  margin-top: calc(-1 * var(--space-2));
-  font-size: var(--fs-13);
-  color: var(--text);
+.field-control .field-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.send-choose {
+  flex: none;
+  white-space: nowrap;
 }
 
 @media (max-width: 420px) {

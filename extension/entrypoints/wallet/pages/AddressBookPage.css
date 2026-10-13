@@ -1,0 +1,102 @@
+.contacts-lead {
+  max-width: 60ch;
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.contacts-add {
+  margin-top: var(--space-4);
+}
+
+.contacts-add .panel-title {
+  margin-bottom: var(--space-3);
+}
+
+.contacts-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.contacts-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--fs-13);
+  color: var(--alert);
+}
+
+.contacts-ack input {
+  margin-top: 2px;
+  flex: none;
+}
+
+.contacts-empty {
+  margin-top: var(--space-5);
+  font-size: var(--fs-15);
+  color: var(--text-muted);
+}
+
+.contacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.contacts-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.contacts-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.contacts-name {
+  font-size: var(--fs-17);
+  font-weight: 500;
+}
+
+.contacts-address {
+  font-size: var(--fs-13);
+}
+
+.contacts-saved {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.contacts-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.contacts-remove-question {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.contacts-rename {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+@media (max-width: 420px) {
+  .contacts-item {
+    padding: var(--space-3);
+  }
+}

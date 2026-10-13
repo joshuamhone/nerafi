@@ -3,8 +3,11 @@ import { AddressText } from '../../../components/AddressText';
 import { Button } from '../../../components/Button';
 import { Guilloche } from '../../../components/Guilloche';
 import { Notice } from '../../../components/Notice';
+import { RecipientNotice } from '../../../components/RecipientNotice';
 import { formatAtMost, formatExact } from '../../../lib/wallet/format';
 import { SEPOLIA_CHAIN_ID } from '../../../lib/wallet/network';
+import { canSign } from '../../../lib/wallet/recipientSafety';
+import type { RecipientInfo } from '../../../lib/wallet/recipientSafety';
 import type { Review } from '../../../lib/wallet/send';
 import { totalLeavingSentence } from '../../../lib/wallet/reviewCopy';
 import './Review.css';
@@ -12,10 +15,12 @@ import './Review.css';
 type ReviewProps = {
   review: Review;
   address: string;
-  recipientAccountName: string | null;
+  recipientInfo: RecipientInfo | null;
+  acknowledged: boolean;
   password: string;
   error: string;
   busy: boolean;
+  onAcknowledge: (value: boolean) => void;
   onPassword: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
   onCancel: () => void;
@@ -24,15 +29,19 @@ type ReviewProps = {
 export function ReviewScreen({
   review,
   address,
-  recipientAccountName,
+  recipientInfo,
+  acknowledged,
   password,
   error,
   busy,
+  onAcknowledge,
   onPassword,
   onSubmit,
   onCancel,
 }: ReviewProps) {
   const selfSend = review.to.toLowerCase() === address.toLowerCase();
+  const lookalike = recipientInfo?.kind === 'lookalike' ? recipientInfo : null;
+  const signDisabled = busy || !review.sufficient || !canSign(recipientInfo, acknowledged);
 
   return (
     <section className="screen">
@@ -60,8 +69,8 @@ export function ReviewScreen({
               <dt>Pay to</dt>
               <dd>
                 <AddressText value={review.to} onPaper />
-                {recipientAccountName !== null && (
-                  <span className="cheque-own-account">Your account: {recipientAccountName}</span>
+                {recipientInfo !== null && recipientInfo.kind !== 'lookalike' && (
+                  <RecipientNotice info={recipientInfo} address={review.to} onPaper />
                 )}
               </dd>
             </div>
@@ -112,6 +121,22 @@ export function ReviewScreen({
             </details>
 
           <div className="cheque-notices">
+            {lookalike !== null && (
+              <>
+                <RecipientNotice info={lookalike} address={review.to} onPaper />
+                <label className="cheque-ack">
+                  <input
+                    type="checkbox"
+                    checked={acknowledged}
+                    onChange={(e) => onAcknowledge(e.target.checked)}
+                  />
+                  <span>
+                    I have checked every character. This is not {lookalike.match.known.label}.
+                  </span>
+                </label>
+              </>
+            )}
+
             {selfSend && (
               <Notice variant="alert" onPaper>
                 You are sending to your own address.
@@ -152,7 +177,7 @@ export function ReviewScreen({
                 variant="primary"
                 onPaper
                 type="submit"
-                disabled={busy || !review.sufficient}
+                disabled={signDisabled}
               >
                 Sign and send
               </Button>

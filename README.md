@@ -25,6 +25,9 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **Milestone 6 — complete:** multiple accounts under one phrase, a Settings page
   (auto-lock interval and change password), unlock backoff, a local security log,
   and a sidebar account switcher.
+- **Milestone 7 — complete:** a local address book, recipient classification on
+  the send form and review cheque, and lookalike (address-poisoning) warnings
+  that require an explicit acknowledgement before sending.
 
 ## Features
 
@@ -131,9 +134,32 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
   policy and differ, and the vault is re-encrypted with a fresh salt and IV that is
   verified to round-trip before it replaces the old one.
 - **Local security log.** The last 200 events (unlock, lock, auto-lock, failed
-  unlock, lockout, password/account/auto-lock changes, address mismatch, restore)
-  are recorded locally with fixed-format details only — never addresses, amounts,
-  names, passwords, or phrases.
+  unlock, lockout, password/account/auto-lock changes, address mismatch, restore,
+  contact changes, lookalike acknowledgements) are recorded locally with
+  fixed-format details only — never addresses, amounts, names, passwords, or
+  phrases.
+
+**Milestone 7 — address book and recipient safety**
+
+- **Address book.** Save up to 100 named contacts locally (`nerafi.contacts`),
+  managed on an "Address book" page (add, rename, remove). Contacts are display
+  labels with no security meaning and need no password.
+- **Recipient classification.** When you type a recipient, Nerafi says whether it
+  is one of your accounts, a saved contact, a lookalike, an address you have sent to
+  before, or a first-time (unknown) address, in that priority order. A lookalike
+  outranks "sent before", so one acknowledged send to a poisoning address never
+  makes it trusted. A first-time address is never
+  trusted just because it appears in your history.
+- **Lookalike (address-poisoning) warnings.** A different address that matches the
+  first and last three hex characters of a known address — or five at either end —
+  raises an alert. Both addresses are shown in full with the differing characters
+  highlighted, and sending requires ticking "I have checked every character.".
+- **Address-poisoning notes in Activity.** An incoming sender that resembles a
+  known address is annotated with a warning, and known counterparties are shown by
+  name. History still never drives a signature.
+- **Local sent-recipient memory.** Addresses this wallet has sent to (last 500,
+  `nerafi.sentRecipients`) are remembered so a repeat recipient is recognised, and
+  are written only by the send flow after a broadcast succeeds.
 
 ## Design
 
@@ -209,13 +235,17 @@ extension/
     popup/            Popup with the "Open wallet" button.
     wallet/           Full-page UI shell and state machine (App.tsx).
       screens/        Full-screen views (welcome, reveal, review, send, ...).
-      pages/          Shell pages: Overview, Receive, Activity, and Settings.
-      shell/          Sidebar, app-shell layout, account switcher, and dialogs.
+      pages/          Shell pages: Overview, Receive, Activity, Settings, and
+                      Address book.
+      shell/          Sidebar, app-shell layout, account switcher, recipient
+                      picker, and dialogs.
       AuthLayout.tsx  Split brand/task layout for the onboarding screens.
       context.tsx     Wallet state (balance, network, accounts) with refresh.
-      router.ts       Hash routes: overview, activity, send, receive, settings.
+      router.ts       Hash routes: overview, activity, send, receive, settings,
+                      contacts.
     background.ts     Background service worker.
-  components/         Shared UI (Button, Field, AddressText, Guilloche, ...).
+  components/         Shared UI (Button, Field, AddressText, RecipientNotice,
+                      Guilloche, ...).
   assets/styles/      Design tokens and base styles.
   lib/wallet/
     account.ts        Phrase generation, checksum validation, address derivation.
@@ -226,6 +256,10 @@ extension/
     settings.ts       Auto-lock interval settings and their persistence.
     unlock.ts         Central password check (openVault) and unlock backoff.
     securityLog.ts    Local security-event log (last 200, fixed-format details).
+    contacts.ts       Local address book (up to 100): parsing, CRUD, validation.
+    sentRecipients.ts Local list of addresses already sent to (last 500).
+    lookalike.ts      Lookalike detection and per-character address diffing.
+    recipientSafety.ts  Known-set construction and recipient classification.
     network.ts        Sepolia chain ID, RPC client, and balance lookup.
     send.ts           Recipient/amount parsing, review building, and signing.
     format.ts         Big-int formatting for display (down, up, exact).
@@ -246,6 +280,10 @@ extension/
     settings.test.ts  Tests for auto-lock settings and their effects.
     unlock.test.ts    Tests for the password check and unlock backoff.
     securityLog.test.ts  Tests for the security log and its bounds.
+    contacts.test.ts  Tests for address-book parsing, CRUD, and limits.
+    sentRecipients.test.ts  Tests for the sent-recipient list and its bounds.
+    lookalike.test.ts  Tests for lookalike detection and address diffing.
+    recipientSafety.test.ts  Tests for the known set and recipient classification.
     network.test.ts   Tests for the Sepolia chain-ID check.
     send.test.ts      Tests for parsing, review math, and signing.
     format.test.ts    Tests for number formatting bounds and properties.

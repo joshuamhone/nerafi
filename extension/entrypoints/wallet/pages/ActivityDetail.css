@@ -67,6 +67,17 @@
   color: var(--alert);
 }
 
+.detail-known {
+  margin-left: var(--space-2);
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.detail-poison {
+  font-size: var(--fs-13);
+  color: var(--alert);
+}
+
 .detail-plain {
   white-space: pre-wrap;
   overflow-wrap: break-word;

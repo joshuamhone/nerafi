@@ -40,3 +40,16 @@
 .addr-chunk:not(:last-child) {
   margin-right: 0.28em;
 }
+
+/* Differing characters are marked with a non-colour cue (underline) as well as
+   colour, so the difference is not carried by colour alone. */
+.addr-char--diff {
+  color: var(--alert);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+.on-paper .addr-char--diff {
+  color: var(--alert-paper);
+}

@@ -1,0 +1,32 @@
+.recipient-note {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+}
+
+.recipient-note--warn {
+  color: var(--alert);
+}
+
+.on-paper .recipient-note {
+  color: var(--intaglio-strong);
+}
+
+.on-paper .recipient-note--warn {
+  color: var(--alert-paper);
+}
+
+.recipient-alert-text {
+  font-size: var(--fs-13);
+}
+
+.recipient-compare {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.recipient-compare-label {
+  font-size: var(--fs-13);
+  opacity: 0.75;
+}
