@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 import { Button } from '../../../components/Button';
 import {
   ActivityIcon,
+  ContactsIcon,
   LockIcon,
   OverviewIcon,
   ReceiveIcon,
@@ -26,6 +27,7 @@ const NAV: Array<{ route: Route; label: string; Icon: ComponentType<IconProps> }
   { route: 'activity', label: 'Activity', Icon: ActivityIcon },
   { route: 'send', label: 'Send', Icon: SendIcon },
   { route: 'receive', label: 'Receive', Icon: ReceiveIcon },
+  { route: 'contacts', label: 'Address book', Icon: ContactsIcon },
   { route: 'settings', label: 'Settings', Icon: SettingsIcon },
 ];
 

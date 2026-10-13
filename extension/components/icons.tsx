@@ -310,3 +310,30 @@ export function ContractIcon({ size = 16, className }: IconProps) {
     </svg>
   );
 }
+
+export function ContactsIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M3.25 2.25h8.5a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1h-8.5a1 1 0 0 1-1-1v-9.5a1 1 0 0 1 1-1Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path d="M5 2.25v11.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M7.75 5.75h2.5M7.75 8h2.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}

@@ -71,6 +71,14 @@ export function formatDateTime(ts: number): string {
   return new Date(ts).toLocaleString();
 }
 
+export function formatDay(ts: number): string {
+  return new Date(ts).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
 export function formatIso(ts: number): string {
   return new Date(ts).toISOString();
 }

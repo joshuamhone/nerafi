@@ -4,6 +4,8 @@ import { formatExact } from '../../../lib/wallet/format';
 import { LOCAL_PENDING_SUBLABEL } from '../../../lib/wallet/history/local';
 import { EXPLORER_TX_URL } from '../../../lib/wallet/network';
 import type { ActivityItem } from '../../../lib/wallet/history/types';
+import { activityCounterpartyInfo } from '../../../lib/wallet/recipientSafety';
+import { useWallet } from '../context';
 import {
   activityLabel,
   activityStatusText,
@@ -19,6 +21,9 @@ type ActivityDetailProps = {
 };
 
 export function ActivityDetail({ item, onBack }: ActivityDetailProps) {
+  const { known } = useWallet();
+  const info = activityCounterpartyInfo(item, known);
+  const counterpartyIsFrom = item.direction !== 'out';
   const fee = item.feeWei === null ? 'unknown' : `${formatExact(item.feeWei)} test ETH`;
   const block = item.blockNumber?.toString() ?? '—';
   const nonce = item.nonce?.toString() ?? '—';
@@ -54,6 +59,9 @@ export function ActivityDetail({ item, onBack }: ActivityDetailProps) {
             <dt>From</dt>
             <dd>
               <AddressText value={item.from} />
+              {counterpartyIsFrom && info.name !== null && (
+                <span className="detail-known">{info.name}</span>
+              )}
             </dd>
           </div>
           <div className="detail-row">
@@ -68,7 +76,12 @@ export function ActivityDetail({ item, onBack }: ActivityDetailProps) {
                   </>
                 )
               ) : (
-                <AddressText value={item.to} />
+                <>
+                  <AddressText value={item.to} />
+                  {!counterpartyIsFrom && info.name !== null && (
+                    <span className="detail-known">{info.name}</span>
+                  )}
+                </>
               )}
             </dd>
           </div>
@@ -120,6 +133,13 @@ export function ActivityDetail({ item, onBack }: ActivityDetailProps) {
         {item.explorerFlags.counterpartyScam && (
           <p className="detail-scam">
             Blockscout labels this address as a scam. Nerafi has not verified this label.
+          </p>
+        )}
+
+        {info.poisoning !== null && (
+          <p className="detail-poison">
+            Possible address poisoning: this sender looks like {info.poisoning.known.label}. Never
+            copy addresses from your history.
           </p>
         )}
 

@@ -15,7 +15,9 @@ overview and receive pages, a locally rendered QR code, and one consistent way
 of displaying amounts. Milestone 5 adds activity history from a public
 explorer, a transaction detail view, and local sent records. Milestone 6 adds
 multiple accounts under one recovery phrase, a Settings page (auto-lock and
-change password), unlock backoff, and a local security log.
+change password), unlock backoff, and a local security log. Milestone 7 adds a
+local address book, recipient classification on the send form and review
+cheque, and lookalike (address-poisoning) warnings.
 
 What Nerafi does today:
 
@@ -48,6 +50,14 @@ What Nerafi does today:
   until Blockscout indexes them, so they can surface as pending in the gap
   before indexing; after 30 minutes the note says the transaction may have been
   dropped.
+- Keeps a local address book (`nerafi.contacts`, up to 100 contacts) and a local
+  list of addresses it has sent to (`nerafi.sentRecipients`, last 500), and
+  classifies a typed recipient as one of your accounts, a contact, a previous
+  recipient, a lookalike, or an unknown address, in that priority order (see
+  "Classification" below).
+- Warns when a recipient or an incoming sender resembles a known address
+  character-for-character at the start and end (address poisoning), and requires
+  an explicit acknowledgement before sending to a lookalike.
 - Connects to no network other than the Sepolia RPC endpoint and the Blockscout
   explorer described in "Sending test ETH" and "Transaction history" below.
 
@@ -65,7 +75,14 @@ What Nerafi does not do:
 - It does not run in the background; it acts only in response to the user.
 - Transaction history never drives a signature or a funds decision. History is a
   record of what the explorer reports; the signing flow reads its values from the
-  review the user approves, never from a history row.
+  review the user approves, never from a history row. In particular, an address
+  that has sent to you — which appears only in history — is never added to the
+  known set used for recipient classification.
+- It does not treat a local contact name as proof of identity. A name is a label
+  the user typed. Choosing a contact copies the address stored in the local contact
+  entry into the recipient field; the review cheque shows that address in full,
+  and that is the address that gets signed. Contact entries are not
+  integrity-protected, so a changed browser profile can change them.
 
 ## Standards and libraries
 
@@ -533,7 +550,9 @@ arithmetic is ever done on balances or amounts.
   only when the recipient address is in the verified session list — the addresses
   the phrase actually derived at unlock. The name comes from local storage, but a
   local entry alone (for example, a tampered entry naming a stranger's address
-  "Account 2") never produces a hint.
+  "Account 2") never produces a hint. The other recipient hints (contact, previous
+  recipient, lookalike, unknown) are described in "Recipient safety and address
+  poisoning" below.
 
 ### Adding an account needs the password
 
@@ -570,10 +589,12 @@ the system clock can shorten or end a lockout. This is stated plainly in
   (older entries are dropped) with a type, a timestamp, and an optional short
   detail. The types are lock/unlock, auto-lock, failed unlock, lockout started,
   password changed, account added, account renamed, auto-lock changed, address
-  mismatch, and wallet restored.
+  mismatch, wallet restored, contact added, contact removed, contact renamed, and
+  lookalike acknowledged.
 - Details are only fixed formats such as `"Account 3"` or `"5 minutes"`. The log
   never contains addresses, amounts, user-entered names, passwords, phrases, or
-  keys.
+  keys. The contact and lookalike events are recorded with no detail at all, so a
+  contact's name or address never enters the log.
 - A failure to write the log is swallowed: logging never blocks, delays, or
   breaks the operation that triggered it.
 - The log is local to this browser profile and is not a tamper-proof audit trail;
@@ -593,3 +614,129 @@ guess. Until the check passes, the existing vault is left untouched, so a failed
 change never locks the user out. The stored address hint is left exactly as it
 was — it always names the account that was active — so a password change never
 moves the hint to another account.
+
+## Recipient safety and address poisoning (Milestone 7)
+
+Address poisoning is an attack where a sender moves a tiny amount of ETH from an
+address whose first and last few characters match an address you already use, so
+that the lookalike shows up in your history. The hope is that you later copy the
+address from your history (or from a "recent recipient" list) and send funds to
+the attacker instead of the real recipient. Nerafi's defence is to keep its own
+small, user-controlled list of known addresses and to warn — loudly, and with the
+differing characters highlighted — when a recipient only looks like one of them.
+
+### The local address book
+
+- Contacts live in `chrome.storage.local["nerafi.contacts"]`, are capped at 100,
+  and need no password: they are local display labels with no security meaning,
+  the same as account names. A strict parser drops any entry it cannot validate,
+  so a tampered store cannot inject a malformed entry.
+- Adding, removing, and renaming a contact are recorded in the security log as
+  `contact added`, `contact removed`, and `contact renamed`, with **no detail**, so
+  neither the contact's name nor its address ever enters the log. The address book
+  is reachable from the sidebar as "Address book".
+- A contact is only a convenience. Choosing a contact copies the address stored in
+  the local contact entry into the recipient field, and the review cheque shows
+  that address in full before anything is signed. Contact entries are not
+  integrity-protected: anyone who can change the browser profile can change a
+  stored address, so the full address on the review cheque is what the user must
+  check.
+
+### The known set
+
+Recipient classification compares the typed address against a **known set** built
+from three sources only:
+
+1. The verified accounts from the current session — the addresses the phrase
+   actually derived at unlock. A name comes from local storage, but a session
+   entry alone is not enough: the address must be in the verified list.
+2. Saved contacts (`nerafi.contacts`).
+3. Addresses this wallet has sent to before (`nerafi.sentRecipients`, last 500),
+   written by the send flow immediately after a broadcast returns a hash — the
+   same place local sent records are written.
+
+The known set deliberately **excludes** addresses that sent to you, Blockscout
+labels, and anything else read from history. That is the whole point: an attacker
+who can get their lookalike into your history must not be able to get it into
+your known set as a side effect. Addresses are only trusted as known when you
+saved them or sent to them yourself.
+
+### Classification
+
+A typed recipient is classified as exactly one of:
+
+- **Your account** — matches a verified session account. Shown as
+  "Your account: {name}". (The sentence "This is your {name}." is only the
+  add-contact rejection.)
+- **Contact** — matches a saved contact. Shown as "Contact: {name} · saved {date}".
+- **Lookalike** — a different address that resembles a known address (see below).
+  Shown as "This address looks like {label} but is a different address.".
+- **Previous recipient** — matches an address already sent to, and resembles no
+  other known address. Shown as "You have sent to this address before.".
+- **Unknown** — none of the above. Shown as "First time sending to this address.
+  Check it against a source you trust, not your transaction history.".
+
+**Why lookalike outranks "sent before".** The order is own account → contact →
+lookalike → previously sent → unknown. The lookalike check compares the candidate
+against every known address except entries for the candidate itself, including
+other sent recipients. One acknowledged send to a poisoning address must never
+turn it into a trusted "sent before" address: a sent recipient that resembles an
+account, a contact or another sent recipient is classified as a lookalike every
+time, and a sent recipient that resembles nothing is "sent". The Activity
+poisoning warning applies the same rule.
+
+A malformed address is rejected earlier with "That is not a valid Ethereum
+address.", and a mixed-case address that fails its EIP-55 checksum is rejected
+with "This address has a checksum error — check it for typos.". Only a canonical
+`0x` + 40 hex-character address is ever classified or compared.
+
+### Lookalike detection
+
+Detection compares the 40 hex characters after `0x`, case-insensitively. Two
+different addresses are flagged as a lookalike when **either**:
+
+- the first **3** and last **3** characters both match (`prefix ≥ 3` and
+  `suffix ≥ 3`), or
+- the first **5** characters match, or the last **5** characters match.
+
+The false-positive rate is intentionally generous. For a random pair of
+addresses, the chance that the first 3 and last 3 characters both match is
+`16⁻⁶ ≈ 1 in 16.8 million`; the chance of a run of 5 at one specific end is
+`16⁻⁵ ≈ 1 in 1,048,576`, and because either end counts, roughly `2 in 1,048,576`,
+or about **1 in 524,000** per address compared. Being generous is deliberate: the
+worst case of a false positive is one extra "check this address" prompt, while the
+cost of a false negative is sending to an attacker. When more than one known
+address matches, the strongest match (the largest combined prefix and suffix) is
+shown.
+
+### What the user sees
+
+- On the send form and on the review cheque, a lookalike raises an alert that
+  names the known address it resembles. Both addresses are shown in full with the
+  differing characters marked with an underline and the alert colour, so the
+  difference is visible character by character.
+- Sending to a lookalike is blocked until the user ticks a required checkbox (the gate is the pure function
+  `canSign`, used both for the Sign button and as the first check in the send
+  handler, so it holds even without the UI),
+  "I have checked every character. This is not {label}.", and the acknowledgement
+  is recorded in the security log as `lookalike acknowledged` with no detail. The
+  checkbox state resets whenever the recipient changes.
+- In Activity, an incoming sender that resembles a known address is annotated:
+  "Possible address poisoning: this sender looks like {label}. Never copy
+  addresses from your history.". A known counterparty is also labelled by name.
+  These annotations are shown next to Blockscout's data, which remains untrusted
+  and still never drives a signature.
+
+### Limitations
+
+- Lookalike detection is a heuristic, not a proof. An attacker who cannot match
+  three leading and three trailing characters, or five at one end, will not be
+  flagged, and a flagged address may still be the real one.
+- The known set is only as good as what the user has saved or sent. A first-ever
+  recipient is always "unknown" and is never added to the known set just by
+  appearing in history.
+- The address book and the sent-recipient list live in `chrome.storage.local`, so
+  anyone with access to the browser profile can read or alter them, exactly as with
+  the security log. They are convenience state, not trusted state. The lookalike
+  acknowledgement is in-memory UI state only: it resets when the recipient changes
+  or the send flow resets, and it is never stored.

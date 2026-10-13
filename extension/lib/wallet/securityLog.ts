@@ -16,6 +16,10 @@ export const SECURITY_LOG_TYPES = [
   'auto_lock_changed',
   'address_mismatch',
   'wallet_restored',
+  'contact_added',
+  'contact_removed',
+  'contact_renamed',
+  'lookalike_acknowledged',
 ] as const;
 
 export type SecurityLogType = (typeof SECURITY_LOG_TYPES)[number];
@@ -38,6 +42,10 @@ export const SECURITY_LOG_LABELS: Record<SecurityLogType, string> = {
   auto_lock_changed: 'Auto-lock changed',
   address_mismatch: 'Saved address corrected',
   wallet_restored: 'Wallet restored from recovery phrase',
+  contact_added: 'Contact added',
+  contact_removed: 'Contact removed',
+  contact_renamed: 'Contact renamed',
+  lookalike_acknowledged: 'Look-alike address acknowledged',
 };
 
 const TYPE_SET = new Set<string>(SECURITY_LOG_TYPES);

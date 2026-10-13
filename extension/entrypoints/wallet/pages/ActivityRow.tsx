@@ -2,6 +2,8 @@ import { AddressText } from '../../../components/AddressText';
 import { ContractIcon, ReceiveIcon, SelfIcon, SendIcon } from '../../../components/icons';
 import { localPendingSublabel } from '../../../lib/wallet/history/local';
 import type { ActivityItem } from '../../../lib/wallet/history/types';
+import { activityCounterpartyInfo } from '../../../lib/wallet/recipientSafety';
+import { useWallet } from '../context';
 import { activityLabel, formatTime, signedAmount } from './activityUtils';
 import { activityHref } from '../router';
 import './ActivityRow.css';
@@ -35,8 +37,10 @@ function StatusBadge({ item }: { item: ActivityItem }) {
 }
 
 export function ActivityRow({ item, compact = false }: ActivityRowProps) {
+  const { known } = useWallet();
   const label = activityLabel(item);
   const counterparty = item.direction === 'out' ? item.to : item.from;
+  const info = activityCounterpartyInfo(item, known);
   const classes = compact ? 'activity-row activity-row--compact' : 'activity-row';
 
   return (
@@ -56,6 +60,13 @@ export function ActivityRow({ item, compact = false }: ActivityRowProps) {
             <AddressText value={counterparty} className="activity-row-address" />
           ) : (
             <span className="activity-row-address" aria-hidden="true" />
+          )}
+          {info.name !== null && <span className="activity-row-known">{info.name}</span>}
+          {!compact && info.poisoning !== null && (
+            <span className="activity-row-poison">
+              Possible address poisoning: this sender looks like {info.poisoning.known.label}. Never
+              copy addresses from your history.
+            </span>
           )}
           {!compact && item.source === 'local' && (
             <span className="activity-row-sublabel">

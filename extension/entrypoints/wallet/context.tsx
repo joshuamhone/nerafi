@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import type { ReactNode } from 'react';
 import { isAddress } from 'viem';
 import type { StoredAccount } from '../../lib/wallet/accounts';
+import type { KnownAddress } from '../../lib/wallet/lookalike';
 import { createSepoliaClient, SEPOLIA_CHAIN_ID, SEPOLIA_RPC_URL } from '../../lib/wallet/network';
 
 export type NetworkStatus = 'checking' | 'reachable' | 'unreachable';
@@ -22,6 +23,7 @@ type WalletContextValue = {
   switchAccount: (index: number) => void;
   manageAccounts: () => void;
   addAccount: () => void;
+  known: KnownAddress[];
 };
 
 const WalletContext = createContext<WalletContextValue | null>(null);
@@ -42,6 +44,7 @@ type WalletProviderProps = {
   onSwitchAccount: (index: number) => void;
   onManageAccounts: () => void;
   onAddAccount: () => void;
+  known: KnownAddress[];
   children: ReactNode;
 };
 
@@ -53,6 +56,7 @@ export function WalletProvider({
   onSwitchAccount,
   onManageAccounts,
   onAddAccount,
+  known,
   children,
 }: WalletProviderProps) {
   const [balanceWei, setBalanceWei] = useState<bigint | null>(null);
@@ -124,6 +128,7 @@ export function WalletProvider({
     switchAccount: onSwitchAccount,
     manageAccounts: onManageAccounts,
     addAccount: onAddAccount,
+    known,
   };
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
