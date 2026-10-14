@@ -84,8 +84,10 @@ export type CounterpartyInfo = {
   poisoning: LookalikeMatch | null;
 };
 
+// Takes only the fields it reads, so transactions, internal transfers and token
+// transfers all go through the same check.
 export function activityCounterpartyInfo(
-  item: ActivityItem,
+  item: Pick<ActivityItem, 'direction' | 'from' | 'to'>,
   known: KnownAddress[],
 ): CounterpartyInfo {
   const counterparty = item.direction === 'out' ? item.to : item.from;

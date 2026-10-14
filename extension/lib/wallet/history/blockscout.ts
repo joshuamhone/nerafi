@@ -12,7 +12,7 @@ const MSG_RESPONSE = 'Blockscout returned an unreadable response.';
 
 export class HistoryError extends Error {}
 
-type AddressFlags = {
+export type AddressFlags = {
   hash: string;
   isContract: boolean;
   isScam: boolean;
@@ -23,7 +23,7 @@ function isValidAddress(value: unknown): value is string {
   return typeof value === 'string' && isAddress(value);
 }
 
-function parseAddressObject(value: unknown): AddressFlags | null {
+export function parseAddressObject(value: unknown): AddressFlags | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
   if (!isValidAddress(record.hash)) return null;
@@ -35,12 +35,12 @@ function parseAddressObject(value: unknown): AddressFlags | null {
   };
 }
 
-function parseWeiValue(value: unknown): bigint | null {
+export function parseWeiValue(value: unknown): bigint | null {
   if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
   return BigInt(value);
 }
 
-function parseBlockNumber(value: unknown): bigint | null {
+export function parseBlockNumber(value: unknown): bigint | null {
   if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return BigInt(value);
   if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value);
   return null;
@@ -166,11 +166,9 @@ function parseExplorerResponse(json: unknown, account: string): HistoryPage {
   return { items, nextCursor: parseNextCursor(record.next_page_params), skipped };
 }
 
-async function fetchExplorerPage(
-  url: URL,
-  externalSignal: AbortSignal,
-  account: string,
-): Promise<HistoryPage> {
+// One keyless GET against the Blockscout host, with a timeout and fixed error
+// messages. Returns the parsed JSON untouched; callers must parse it strictly.
+export async function fetchExplorerJson(url: URL, externalSignal: AbortSignal): Promise<unknown> {
   const controller = new AbortController();
   const onExternalAbort = () => controller.abort();
   externalSignal.addEventListener('abort', onExternalAbort);
@@ -196,7 +194,15 @@ async function fetchExplorerPage(
     throw new HistoryError(MSG_RESPONSE);
   }
 
-  return parseExplorerResponse(json, account);
+  return json;
+}
+
+async function fetchExplorerPage(
+  url: URL,
+  externalSignal: AbortSignal,
+  account: string,
+): Promise<HistoryPage> {
+  return parseExplorerResponse(await fetchExplorerJson(url, externalSignal), account);
 }
 
 export function fetchTransactionsPage(

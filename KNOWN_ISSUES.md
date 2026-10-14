@@ -79,12 +79,60 @@ apply to the pages already loaded (the first page, plus anything fetched with
 because loading every page automatically would turn a user-initiated check into
 an unbounded loop of network requests.
 
-## Internal transfers and tokens are not shown in history
+## No token sending or approvals yet
 
-**Accepted limitation.** Blockscout's `coin_transfer` list does not include ETH
-or tokens moved to the wallet by smart contracts (internal transactions), and
-it does not include ERC-20 token transfers. The wallet's history is
-plain-ETH-only for that reason.
+**Accepted limitation.** Tokens are read-only: Nerafi shows balances and
+transfers of ERC-20 tokens you add by contract address, but it cannot send a
+token, and it neither creates nor shows token approvals. Sending, approvals and
+NFTs (ERC-721 / ERC-1155, which are not requested from Blockscout) are not
+built.
+
+## Token balances trust the Sepolia RPC
+
+**Accepted limitation.** A token balance is whatever `balanceOf` returns from the
+public RPC endpoint, and a token contract can return any number it likes. Nerafi
+checks only that the contract answers like an ERC-20 when you add it. The token's
+name and symbol are also chosen by its deployer; they are sanitised (hidden and
+bidi characters removed, length cut) but can still be misleading, which is why
+the contract address is shown in full and a second token with the same symbol is
+flagged. A malicious token can report any balance, so a displayed token balance is
+not proof of ownership or value. The token list
+(`chrome.storage.local["nerafi.tokens"]`, at most 50) is local and not
+integrity-protected. Balances are read at most four calls at a time, each token
+failing independently to "Couldn't load".
+
+## Blockscout internal and token lists are first page only
+
+**Accepted limitation.** Internal transfers (`internal-transactions`) and ERC-20
+transfers (`token-transfers?type=ERC-20`) are read as a single first page
+alongside the first page of transactions, with no "Load more". When Blockscout
+reports more pages, Activity says the list may be incomplete. The All / Sent /
+Received filter and the search apply to what is loaded. Internal calls that moved
+no ETH are not listed. If one of the three requests fails, Activity shows the
+other two with a note naming the part that failed.
+
+## Internal-transaction parser coverage of real responses
+
+**Status of the fixtures.** The internal-transaction and token-transfer parsers
+were written against live Blockscout responses saved under
+`lib/wallet/history/fixtures/` (`internal-transactions-*-live.json`,
+`token-transfers-*-live.json`), and every item in them parses. The live samples
+cover zero-value `call`, `staticcall` and `delegatecall` entries, a `call` that
+carried ETH from a contract flagged as a scam, a contract `create` whose `to` is
+null (the wallet is the created contract), a token transfer with value 0, and a
+token transfer whose symbol, name and decimals were all null. Every file named
+`*-live.json` is an unedited, trimmed Blockscout response; fields such as a
+token's `holders_count` have since drifted on the live API, which is the only
+difference from a fresh fetch.
+
+**The failed internal transfer case was verified only with a synthetic item.**
+No internal transfer with `success: false` or an `error` string appeared in the
+pages searched, so the failed-transfer handling (label "Failed internal
+transfer", no amount, not counted as received) is tested against variations of a
+real successful item, not against a live failed one. Real failed items may carry
+other fields or error text than assumed. A synthetic `to: null` variation is also
+used in a few tests for an item the wallet sent; the real `to: null` item is a
+contract creation. NFT transfers were not sampled because they are not requested.
 
 ## Blockscout labels are third-party data
 
@@ -127,7 +175,7 @@ page and is not guessed into the list).
 
 ## The security log is local and not tamper-proof
 
-**Accepted limitation.** `chrome.storage.local["nerafi.securityLog"]` keeps the last 200 events (locks, unlocks, failed attempts, lockouts, password/account/auto-lock changes, address mismatches, restores, contact changes, and lookalike acknowledgements) with a type, timestamp, and a short fixed-format detail. The contact and lookalike events carry no detail at all, so a contact's name or address never enters the log. It never contains addresses, amounts, user names, passwords, phrases, or keys, and there is deliberately no "clear log" button. Because it lives in this browser profile, anyone with access to the profile can read, alter, or clear it. It is a convenience history, not a tamper-evident audit trail.
+**Accepted limitation.** `chrome.storage.local["nerafi.securityLog"]` keeps the last 200 events (locks, unlocks, failed attempts, lockouts, password/account/auto-lock changes, address mismatches, restores, contact changes, token changes, and lookalike acknowledgements) with a type, timestamp, and a short fixed-format detail. The contact, token and lookalike events carry no detail at all, so a contact's name, a token's address or symbol, or an address never enters the log. It never contains addresses, amounts, user names, passwords, phrases, or keys, and there is deliberately no "clear log" button. Because it lives in this browser profile, anyone with access to the profile can read, alter, or clear it. It is a convenience history, not a tamper-evident audit trail.
 
 ## Address book and lookalike warnings are local heuristics
 

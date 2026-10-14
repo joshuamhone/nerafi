@@ -1,18 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BlockscoutProvider } from '../../../lib/wallet/history/blockscout';
+import {
+  extrasMayBeIncomplete,
+  loadFirstPages,
+  mergeFeed,
+} from '../../../lib/wallet/history/combined';
+import type { FeedPart } from '../../../lib/wallet/history/combined';
 import { mergeLocalRecords, pruneLocalTx } from '../../../lib/wallet/history/local';
-import type { ActivityItem, HistoryPage } from '../../../lib/wallet/history/types';
+import { isInternalItem } from '../../../lib/wallet/history/types';
+import { fetchInternalTransfers, fetchTokenTransfers } from '../../../lib/wallet/history/transfers';
+import type {
+  ActivityItem,
+  FeedItem,
+  HistoryPage,
+  InternalTransferItem,
+  TokenTransferItem,
+} from '../../../lib/wallet/history/types';
 import { useWallet } from '../context';
 
 export type HistoryStatus = 'loading' | 'ready' | 'error';
 
 export type HistoryFeed = {
-  items: ActivityItem[];
+  items: FeedItem[];
   status: HistoryStatus;
   skipped: number;
   nextCursor: Record<string, string> | null;
   loadingMore: boolean;
   moreError: boolean;
+  // Parts of the first page that could not be loaded. Never empty while the
+  // feed is showing partial history.
+  failedParts: FeedPart[];
+  extrasIncomplete: boolean;
   loadMore: () => void;
   retry: () => void;
 };
@@ -23,7 +41,11 @@ export function useHistoryFeed(address: string): HistoryFeed {
   const firstController = useRef<AbortController | null>(null);
   const loadingMoreRef = useRef(false);
   const newestIncoming = useRef<number | null>(null);
-  const [items, setItems] = useState<ActivityItem[]>([]);
+  const [txItems, setTxItems] = useState<ActivityItem[]>([]);
+  const [internalItems, setInternalItems] = useState<InternalTransferItem[]>([]);
+  const [tokenItems, setTokenItems] = useState<TokenTransferItem[]>([]);
+  const [failedParts, setFailedParts] = useState<FeedPart[]>([]);
+  const [extrasIncomplete, setExtrasIncomplete] = useState(false);
   const [status, setStatus] = useState<HistoryStatus>('loading');
   const [skipped, setSkipped] = useState(0);
   const [nextCursor, setNextCursor] = useState<Record<string, string> | null>(null);
@@ -36,9 +58,11 @@ export function useHistoryFeed(address: string): HistoryFeed {
   }
 
   const applyIncoming = useCallback(
-    (page: HistoryPage) => {
+    (page: HistoryPage, internal: InternalTransferItem[]) => {
       let max: number | null = null;
-      for (const item of page.items) {
+      for (const item of [...page.items, ...internal]) {
+        // A failed internal transfer moved no ETH, so it never counts as incoming.
+        if (isInternalItem(item) && item.failed) continue;
         if (item.direction === 'in' && item.timestamp !== null) {
           max = max === null ? item.timestamp : Math.max(max, item.timestamp);
         }
@@ -56,27 +80,55 @@ export function useHistoryFeed(address: string): HistoryFeed {
     (signal: AbortSignal) => {
       setStatus('loading');
       setMoreError(false);
-      void provider()
-        .fetchPage(address, null, signal)
-        .then(async (page) => {
-          await pruneLocalTx(page.items.map((item) => item.hash));
-          const merged = await mergeLocalRecords(page, address);
-          applyIncoming(merged);
-          setItems(merged.items);
-          setNextCursor(merged.nextCursor);
-          setSkipped(merged.skipped);
-          setStatus('ready');
-        })
-        .catch(() => {
-          if (!signal.aborted) setStatus('error');
+      void (async () => {
+        // The three lists fail independently: one failing never hides the others.
+        const result = await loadFirstPages({
+          transactions: () => provider().fetchPage(address, null, signal),
+          internal: () => fetchInternalTransfers(address, signal),
+          tokens: () => fetchTokenTransfers(address, signal),
         });
+        if (signal.aborted) return;
+        if (result.failed.length === 3) {
+          setStatus('error');
+          return;
+        }
+
+        let merged: HistoryPage = { items: [], nextCursor: null, skipped: 0 };
+        if (result.transactions !== null) {
+          try {
+            await pruneLocalTx(result.transactions.items.map((item) => item.hash));
+            merged = await mergeLocalRecords(result.transactions, address);
+          } catch {
+            merged = result.transactions;
+          }
+        }
+        if (signal.aborted) return;
+
+        const internal = result.internal?.items ?? [];
+        const tokens = result.tokens?.items ?? [];
+        applyIncoming(merged, internal);
+        setTxItems(merged.items);
+        setInternalItems(internal);
+        setTokenItems(tokens);
+        setNextCursor(merged.nextCursor);
+        setSkipped(
+          merged.skipped + (result.internal?.skipped ?? 0) + (result.tokens?.skipped ?? 0),
+        );
+        setFailedParts(result.failed);
+        setExtrasIncomplete(extrasMayBeIncomplete(result.internal, result.tokens));
+        setStatus('ready');
+      })();
     },
     [address, applyIncoming],
   );
 
   useEffect(() => {
     newestIncoming.current = null;
-    setItems([]);
+    setTxItems([]);
+    setInternalItems([]);
+    setTokenItems([]);
+    setFailedParts([]);
+    setExtrasIncomplete(false);
     setSkipped(0);
     setNextCursor(null);
     firstController.current?.abort();
@@ -104,8 +156,8 @@ export function useHistoryFeed(address: string): HistoryFeed {
       .fetchPage(address, nextCursor, controller.signal)
       .then(async (page) => {
         await pruneLocalTx(page.items.map((item) => item.hash));
-        applyIncoming(page);
-        setItems((prev) => [...prev, ...page.items]);
+        applyIncoming(page, []);
+        setTxItems((prev) => [...prev, ...page.items]);
         setNextCursor(page.nextCursor);
         setSkipped((prev) => prev + page.skipped);
       })
@@ -118,6 +170,11 @@ export function useHistoryFeed(address: string): HistoryFeed {
       });
   }, [address, nextCursor, applyIncoming]);
 
+  const items = useMemo(
+    () => mergeFeed(txItems, internalItems, tokenItems),
+    [txItems, internalItems, tokenItems],
+  );
+
   return {
     items,
     status,
@@ -125,6 +182,8 @@ export function useHistoryFeed(address: string): HistoryFeed {
     nextCursor,
     loadingMore,
     moreError,
+    failedParts,
+    extrasIncomplete,
     loadMore,
     retry,
   };

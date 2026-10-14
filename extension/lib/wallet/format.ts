@@ -1,4 +1,4 @@
-import { formatEther } from 'viem';
+import { formatEther, formatUnits } from 'viem';
 
 const WEI_PER_DISPLAY_UNIT = 10n ** 12n;
 const DISPLAY_DECIMALS = 6n;
@@ -25,4 +25,24 @@ export function formatAtMost(wei: bigint): string {
 
 export function formatExact(wei: bigint): string {
   return formatEther(wei);
+}
+
+const TOKEN_DISPLAY_DECIMALS = 6;
+
+// Token balances round down like the ETH balance, to at most six decimals, and
+// a non-zero amount too small to show never reads as 0. All integer maths.
+export function formatTokenBalance(raw: bigint, decimals: number): string {
+  if (raw <= 0n) return '0';
+  const shown = Math.min(decimals, TOKEN_DISPLAY_DECIMALS);
+  const step = 10n ** BigInt(decimals - shown);
+  if (raw < step) return '< 0.000001';
+  const units = raw / step;
+  const scale = 10n ** BigInt(shown);
+  const whole = units / scale;
+  const fraction = (units % scale).toString().padStart(shown, '0').replace(/0+$/, '');
+  return fraction === '' ? whole.toString() : `${whole}.${fraction}`;
+}
+
+export function formatTokenExact(raw: bigint, decimals: number): string {
+  return formatUnits(raw, decimals);
 }

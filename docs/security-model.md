@@ -17,7 +17,9 @@ explorer, a transaction detail view, and local sent records. Milestone 6 adds
 multiple accounts under one recovery phrase, a Settings page (auto-lock and
 change password), unlock backoff, and a local security log. Milestone 7 adds a
 local address book, recipient classification on the send form and review
-cheque, and lookalike (address-poisoning) warnings.
+cheque, and lookalike (address-poisoning) warnings. Milestone 8 adds a manual
+list of ERC-20 tokens with read-only balances, and internal-transfer and
+token-transfer rows in Activity.
 
 What Nerafi does today:
 
@@ -494,9 +496,10 @@ Blockscout data is untrusted input, not part of the wallet's own state:
 
 ### What Blockscout does not cover
 
-- Blockscout's `coin_transfer` list does not include ETH or tokens moved to the
-  wallet by smart contracts (internal transactions), and it does not include
-  ERC-20 token transfers. Those simply do not appear in the wallet's history.
+- Since Milestone 8, internal transactions and ERC-20 transfers are read from
+  their own Blockscout lists (see "Tokens and history (Milestone 8)"). The
+  transaction list itself still does not contain them. Token types other than
+  ERC-20 (NFTs, ERC-1155) are not requested and do not appear.
 - Search and the All / Sent / Received filter apply to the pages already
   loaded; older pages that have not been loaded yet are not searched.
 
@@ -589,8 +592,8 @@ the system clock can shorten or end a lockout. This is stated plainly in
   (older entries are dropped) with a type, a timestamp, and an optional short
   detail. The types are lock/unlock, auto-lock, failed unlock, lockout started,
   password changed, account added, account renamed, auto-lock changed, address
-  mismatch, wallet restored, contact added, contact removed, contact renamed, and
-  lookalike acknowledged.
+  mismatch, wallet restored, contact added, contact removed, contact renamed,
+  lookalike acknowledged, token added, and token removed.
 - Details are only fixed formats such as `"Account 3"` or `"5 minutes"`. The log
   never contains addresses, amounts, user-entered names, passwords, phrases, or
   keys. The contact and lookalike events are recorded with no detail at all, so a
@@ -740,3 +743,147 @@ shown.
   the security log. They are convenience state, not trusted state. The lookalike
   acknowledgement is in-memory UI state only: it resets when the recipient changes
   or the send flow resets, and it is never stored.
+
+## Tokens and history (Milestone 8)
+
+Milestone 8 adds read-only ERC-20 token balances and shows internal transfers and
+token transfers in Activity. There is no token sending, no approval, and no
+automatic token discovery. Signing, the vault, the session and the unlock design
+are unchanged, and the manifest still requests only `storage`.
+
+### A manual token list, and why there is no auto-discovery
+
+- Tokens are added only by pasting a contract address on the Overview page.
+  The list is stored in `chrome.storage.local["nerafi.tokens"]` (at most 50).
+  Nothing is ever added because it appeared in history, in a token transfer, or
+  in an explorer's token list.
+- Auto-discovery would turn attacker-controlled data into trusted state. Anyone
+  can send you a token for free, give it any name and symbol, and make it show up
+  in an explorer. A wallet that lists "whatever it finds" lets an attacker choose
+  what appears in your balance list. Nerafi lists only what you confirmed.
+- A transfer in Activity never adds a token to the list and never changes it.
+
+### The contract address is the identity
+
+A token's name and symbol are text chosen by whoever deployed the contract, and
+two different contracts can use the same one. The contract address is what
+identifies a token.
+
+- Before a token is saved, the confirm dialog shows the full contract address
+  (in the same chunked form used everywhere else), the sanitised symbol and name
+  as read from the contract, and this sentence: "Anyone can create a token with
+  any name. The contract address is its identity." Nothing is saved until the
+  user confirms.
+- If two listed tokens share a symbol (compared case-insensitively after
+  sanitising), both show "Another token in your list uses the same symbol. Check
+  the contract address." The dialog shows the same warning when the token being
+  added would clash.
+- A transfer is matched to the list by contract address only. A token that is not
+  in the list is labelled "Unlisted token" in rows, whatever symbol it claims; its
+  contract address, and Blockscout's reported symbol and name (sanitised), appear
+  in the detail view.
+
+### Verification when adding
+
+The pasted address must be a valid address (a mixed-case address with a bad
+checksum is refused). Nerafi then confirms the RPC is on Sepolia, calls
+`eth_getCode` and refuses an address with no code ("No contract at this address
+on Sepolia."), and reads `decimals`, `symbol` and `name`. If any read fails, if
+`decimals` is not an integer from 0 to 36, or if `symbol` or `name` is not a
+plain string (old `bytes32` tokens), it is refused with "This does not look like a
+standard ERC-20 token." These checks show that a contract answers like an ERC-20;
+they do not show that the token is honest or valuable.
+
+### Token text is attacker-controlled and is sanitised
+
+Symbol and name come from the contract (and, in Activity, from Blockscout). Before
+they are shown or stored they pass through one function (`tokenText.ts`): format
+characters are removed first (this includes the bidi controls U+202A–202E and
+U+2066–2069, the zero-width characters, the word joiner and the byte-order mark),
+whitespace is collapsed, remaining control characters are removed, the symbol is
+cut to 11 and the name to 40 characters, and an empty result becomes "Unknown
+token". Stored entries must already be in sanitised form or they are dropped on
+read. Sanitising prevents hidden or reordering characters; it does not make a
+misleading name safe, which is why the contract address is the identity.
+
+### Balances
+
+`balanceOf` for the active account is read from the same Sepolia RPC endpoint as
+the ETH balance, for each listed token, whenever the ETH balance refreshes. No
+new network host is involved. The amounts use the token's own `decimals` and the
+big-int formatter: rounded down to six decimals, and a non-zero amount below that
+shows as `< 0.000001`, never as 0. A read that fails, or returns anything other
+than a non-negative integer, shows "Couldn't load" rather than 0. The RPC is
+trusted for these numbers, as it is for the ETH balance.
+
+A token balance is whatever the token contract returns. A malicious token can
+report any balance it likes, so a displayed token balance is not proof of
+ownership or value. Nerafi's checks when a token is added show only that the
+contract answers like an ERC-20.
+
+Balances are read with at most four `balanceOf` calls in flight at once, so a
+full list of 50 tokens does not send 50 simultaneous requests to the public RPC.
+Each token succeeds or fails on its own; one failing read never affects the
+others.
+
+### Internal transfers and token transfers in Activity
+
+- Activity now reads three first-page lists from the existing Blockscout host:
+  transactions, internal transactions (`/addresses/{address}/internal-transactions`)
+  and ERC-20 transfers (`/addresses/{address}/token-transfers?type=ERC-20`).
+  Internal calls that moved no ETH (value 0) are parsed but not shown.
+- All three are parsed strictly by hand against recorded real responses. An item
+  that cannot be read is counted and reported with "N entries couldn't be read
+  and are not shown."; regression tests require every item of each recorded
+  response to parse.
+- Token amounts need decimals. For a token in your list, the decimals stored when
+  you added it (read from the contract on-chain) are always used, even if
+  Blockscout reports different ones. Only for an unlisted token are Blockscout's
+  decimals used, and if they are missing or unusable the row says "Amount
+  unavailable"; Nerafi never guesses decimals.
+- A failed internal transfer (Blockscout reports `success` false, or any error
+  text) moved no ETH. It is shown as "Failed internal transfer" with no amount
+  ("No ETH moved"), never as a transfer in or out; it does not count as received,
+  does not appear under the Sent or Received filters, and does not trigger a
+  balance refresh. A failed internal call with value 0 is hidden like any other
+  zero-value call. A contract creation (`to` is null) names the new contract in
+  `created_contract`; when that contract is the wallet's address the item is read
+  as on the receiving side.
+- The three lists fail independently. If one fails the others are still shown,
+  together with a note naming the part ("Token transfers couldn't be loaded.") and
+  a statement that what is shown is not the full picture. Partial history is never
+  presented as complete, and an empty feed with a failed part never says "No
+  transactions yet."
+- Only the first page of the internal and token lists is read, and the page says
+  so ("this list may be incomplete") when Blockscout reports more. The detail view
+  of these rows carries the same first-page-only source note.
+
+### Zero-value transfers
+
+An incoming token transfer with value 0 is shown with: "Zero-value transfer.
+Attackers use these to plant lookalike addresses in your history." Anyone can
+trigger a transfer of nothing from an address that resembles one you use, so that
+it appears in your history. An outgoing zero-value transfer gets no warning.
+
+### Blockscout data never enters the known set
+
+The counterparty of every internal and token transfer goes through the same
+`activityCounterpartyInfo` check as a transaction, so a known contact or account
+is named and a sender that resembles a known address gets the poisoning warning.
+Nothing read from Blockscout, internal transactions or token transfers is ever
+added to the known set, the address book, the sent-recipient list or the token
+list. A test checks that parsing and merging this data leaves the known set
+unchanged and writes nothing to storage, and that the history and token modules
+do not import the modules that write those lists.
+
+### Security log
+
+Adding and removing a token are recorded as `token added` and `token removed`
+with no detail, so a token's address, symbol or name never enters the log.
+
+### Limits
+
+- Nerafi cannot tell whether a token is legitimate. A confirmed token is only one
+  the user chose to list.
+- The token list, like the address book, is local and not integrity-protected; a
+  changed browser profile can change it.

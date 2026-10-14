@@ -20,6 +20,8 @@ export const SECURITY_LOG_TYPES = [
   'contact_removed',
   'contact_renamed',
   'lookalike_acknowledged',
+  'token_added',
+  'token_removed',
 ] as const;
 
 export type SecurityLogType = (typeof SECURITY_LOG_TYPES)[number];
@@ -46,6 +48,8 @@ export const SECURITY_LOG_LABELS: Record<SecurityLogType, string> = {
   contact_removed: 'Contact removed',
   contact_renamed: 'Contact renamed',
   lookalike_acknowledged: 'Look-alike address acknowledged',
+  token_added: 'Token added',
+  token_removed: 'Token removed',
 };
 
 const TYPE_SET = new Set<string>(SECURITY_LOG_TYPES);
