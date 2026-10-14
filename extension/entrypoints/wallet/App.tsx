@@ -62,10 +62,19 @@ import type { SentRecipient } from '../../lib/wallet/sentRecipients';
 import { buildKnown, canSign, classifyRecipient } from '../../lib/wallet/recipientSafety';
 import type { RecipientInfo } from '../../lib/wallet/recipientSafety';
 import type { KnownAddress } from '../../lib/wallet/lookalike';
+import {
+  addToken,
+  createTokenClient,
+  loadTokens,
+  removeToken,
+  symbolIsListed,
+  verifyToken,
+} from '../../lib/wallet/tokens';
+import type { Token, VerifiedToken, VerifyTokenResult } from '../../lib/wallet/tokens';
 import { AuthLayout } from './AuthLayout';
 import { WalletProvider, useWallet } from './context';
-import type { Route } from './router';
-import { parseActivityId, parseRoute, routeHref } from './router';
+import type { ActivityRef, Route } from './router';
+import { parseActivityRef, parseRoute, routeHref } from './router';
 import { AppShell } from './shell/AppShell';
 import { Loading } from './screens/Loading';
 import { Welcome } from './screens/Welcome';
@@ -85,6 +94,7 @@ import { Receive } from './pages/ReceivePage';
 import { AddressBookPage } from './pages/AddressBookPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AddAccountDialog } from './shell/AddAccountDialog';
+import { AddTokenDialog } from './shell/AddTokenDialog';
 import type { RecipientOption } from './shell/RecipientPicker';
 import './App.css';
 
@@ -152,7 +162,7 @@ function SentRoute({
 function App() {
   const [step, setStep] = useState<AuthStep>('loading');
   const [route, setRoute] = useState<Route>('overview');
-  const [activityId, setActivityId] = useState<string | null>(null);
+  const [activityRef, setActivityRef] = useState<ActivityRef | null>(null);
   const [sendStep, setSendStep] = useState<SendStep>('form');
   const [flow, setFlow] = useState<Flow>(null);
   const [words, setWords] = useState<string[]>([]);
@@ -189,6 +199,8 @@ function App() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [sentRecipients, setSentRecipients] = useState<SentRecipient[]>([]);
   const [lookalikeAck, setLookalikeAck] = useState(false);
+  const [tokens, setTokens] = useState<Token[]>([]);
+  const [addTokenOpen, setAddTokenOpen] = useState(false);
 
   const autoLockDuration = autoLockMs(settings);
 
@@ -243,12 +255,14 @@ function App() {
   }
 
   async function refreshRecipientData() {
-    const [loadedContacts, loadedSent] = await Promise.all([
+    const [loadedContacts, loadedSent, loadedTokens] = await Promise.all([
       loadContacts(),
       loadSentRecipients(),
+      loadTokens(),
     ]);
     setContacts(loadedContacts);
     setSentRecipients(loadedSent);
+    setTokens(loadedTokens);
   }
 
   function resetSendFlow() {
@@ -273,7 +287,7 @@ function App() {
     const apply = () => {
       const next = parseRoute(window.location.hash);
       setRoute(next);
-      setActivityId(parseActivityId(window.location.hash));
+      setActivityRef(parseActivityRef(window.location.hash));
       if (next === 'send') {
         resetSendFlow();
       } else {
@@ -354,6 +368,7 @@ function App() {
       void (async () => {
         const unlockedAddress = await getUnlockedAddress();
         if (unlockedAddress === null) {
+          setAddTokenOpen(false);
           setStep('locked');
           navigate('overview');
         }
@@ -535,6 +550,7 @@ function App() {
       await lock();
       await appendSecurityLog('lock_manual');
       resetSendFlow();
+      setAddTokenOpen(false);
       setPassword('');
       setError('');
       setStep('locked');
@@ -600,6 +616,28 @@ function App() {
   async function handleRemoveContact(address: string): Promise<void> {
     setContacts(await removeContact(address));
     await appendSecurityLog('contact_removed');
+    await refreshSecurityLog();
+  }
+
+  function handleVerifyToken(input: string): Promise<VerifyTokenResult> {
+    return verifyToken(createTokenClient(), input);
+  }
+
+  // Called only after the user confirms in the dialog; verification alone
+  // never saves anything.
+  async function handleConfirmToken(verified: VerifiedToken): Promise<string | null> {
+    const result = await addToken(verified);
+    if (!result.ok) return result.error;
+    setTokens(result.tokens);
+    await appendSecurityLog('token_added');
+    await refreshSecurityLog();
+    setAddTokenOpen(false);
+    return null;
+  }
+
+  async function handleRemoveToken(address: string): Promise<void> {
+    setTokens(await removeToken(address));
+    await appendSecurityLog('token_removed');
     await refreshSecurityLog();
   }
 
@@ -829,6 +867,7 @@ function App() {
           onManageAccounts={() => navigate('settings')}
           onAddAccount={() => setAddAccountOpen(true)}
           known={known}
+          tokens={tokens}
         >
           <AppShell route={route} busy={busy}>
             {route === 'overview' && (
@@ -836,6 +875,8 @@ function App() {
                 addressCorrected={addressCorrected}
                 onSend={startSend}
                 onReceive={() => navigate('receive')}
+                onAddToken={() => setAddTokenOpen(true)}
+                onRemoveToken={handleRemoveToken}
               />
             )}
 
@@ -888,7 +929,7 @@ function App() {
 
             {route === 'activity' && (
               <ActivityPage
-                id={activityId}
+                activityRef={activityRef}
                 onBackToActivity={() => navigate('activity')}
               />
             )}
@@ -921,6 +962,15 @@ function App() {
               />
             )}
           </AppShell>
+
+          {addTokenOpen && (
+            <AddTokenDialog
+              onVerify={handleVerifyToken}
+              onConfirm={handleConfirmToken}
+              symbolIsListed={(symbol) => symbolIsListed(tokens, symbol)}
+              onClose={() => setAddTokenOpen(false)}
+            />
+          )}
 
           {addAccountOpen && (
             <AddAccountDialog

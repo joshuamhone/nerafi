@@ -28,6 +28,9 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **Milestone 7 — complete:** a local address book, recipient classification on
   the send form and review cheque, and lookalike (address-poisoning) warnings
   that require an explicit acknowledgement before sending.
+- **Milestone 8 — complete:** a manual ERC-20 token list with read-only
+  balances, and internal-transfer and token-transfer rows in Activity. No token
+  sending, no approvals, no automatic token discovery.
 
 ## Features
 
@@ -135,7 +138,7 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
   verified to round-trip before it replaces the old one.
 - **Local security log.** The last 200 events (unlock, lock, auto-lock, failed
   unlock, lockout, password/account/auto-lock changes, address mismatch, restore,
-  contact changes, lookalike acknowledgements) are recorded locally with
+  contact changes, token changes, lookalike acknowledgements) are recorded locally with
   fixed-format details only — never addresses, amounts, names, passwords, or
   phrases.
 
@@ -160,6 +163,38 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **Local sent-recipient memory.** Addresses this wallet has sent to (last 500,
   `nerafi.sentRecipients`) are remembered so a repeat recipient is recognised, and
   are written only by the send flow after a broadcast succeeds.
+
+**Milestone 8 — tokens and richer history**
+
+- **Manual token list.** Add an ERC-20 token by its contract address on the
+  Overview ("Add token"). Nerafi checks that the address is a contract on Sepolia
+  and that it answers `decimals`, `symbol` and `name`, then shows the full
+  contract address with the sentence "Anyone can create a token with any name. The
+  contract address is its identity." Nothing is saved until you confirm. Up to 50
+  tokens (`nerafi.tokens`); removing one asks for confirmation. Tokens are never
+  added automatically, and a transfer in Activity never adds one.
+- **Sanitised token text.** A token's symbol and name are attacker-controlled, so
+  hidden and bidirectional control characters are removed and the text is
+  shortened before it is shown or stored. Two listed tokens with the same symbol
+  are both flagged.
+- **Balances.** `balanceOf` for the active account is read from the same RPC as
+  the ETH balance and refreshed with it. A failed read shows "Couldn't load",
+  never 0; tiny non-zero amounts show `< 0.000001`.
+- **Internal and token transfers in Activity.** Rows for ETH moved by contracts
+  and for ERC-20 transfers, sorted with transactions. A token that is not in your
+  list is labelled "Unlisted token" and its contract address is in the detail
+  view. Listed tokens format amounts with the decimals stored when you added them;
+  for an unlisted token with no usable decimals the amount reads "Amount
+  unavailable". A failed internal transfer is shown as such, with no amount.
+  An incoming zero-value token transfer carries a warning that these are used to
+  plant lookalike addresses.
+- **Partial failure is visible.** Transactions, internal transfers and token
+  transfers load separately; if one fails the others are shown with a note naming
+  the part that failed. Internal and token lists are first page only, and the page
+  says when the list may be incomplete.
+- **Counterparties checked, never trusted.** Counterparties of these transfers get
+  the same known-name and address-poisoning check as transactions. Nothing read
+  from Blockscout is added to the known set.
 
 ## Design
 
@@ -258,6 +293,8 @@ extension/
     securityLog.ts    Local security-event log (last 200, fixed-format details).
     contacts.ts       Local address book (up to 100): parsing, CRUD, validation.
     sentRecipients.ts Local list of addresses already sent to (last 500).
+    tokens.ts         Manual ERC-20 token list, verification, and balances.
+    tokenText.ts      Sanitising of attacker-controlled token symbols and names.
     lookalike.ts      Lookalike detection and per-character address diffing.
     recipientSafety.ts  Known-set construction and recipient classification.
     network.ts        Sepolia chain ID, RPC client, and balance lookup.
@@ -267,6 +304,9 @@ extension/
     history/
       types.ts        Activity types and the history-provider interface.
       blockscout.ts   Strict Blockscout API parsing, pagination, and timeouts.
+      transfers.ts    Strict parsers for internal transactions and token transfers.
+      combined.ts     Independent loading of the three lists, merge and failure notes.
+      display.ts      Token amounts, listed/unlisted labels, zero-value warning.
       local.ts        Local sent-transaction records (last 50) and merging.
       blockscout.test.ts  Parser tests against the recorded fixture.
       local.test.ts       Local-record and merge tests.

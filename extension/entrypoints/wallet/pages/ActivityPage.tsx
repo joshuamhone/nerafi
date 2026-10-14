@@ -1,16 +1,20 @@
 import { useMemo, useState } from 'react';
 import { Button } from '../../../components/Button';
 import { Notice } from '../../../components/Notice';
-import type { ActivityItem } from '../../../lib/wallet/history/types';
+import { EXTRAS_INCOMPLETE_NOTE, failureNotes } from '../../../lib/wallet/history/combined';
+import { feedKey, isInternalItem, isTokenItem } from '../../../lib/wallet/history/types';
+import type { FeedItem } from '../../../lib/wallet/history/types';
 import { useWallet } from '../context';
+import type { ActivityRef } from '../router';
 import { useHistoryFeed } from './useHistoryFeed';
 import { ActivityDetail } from './ActivityDetail';
 import { ActivityRow } from './ActivityRow';
+import { TransferDetail } from './TransferDetail';
 import { groupHeading, todayKey, yesterdayKey } from './activityUtils';
 import './ActivityPage.css';
 
 const HISTORY_FOOTNOTE =
-  'History comes from Blockscout (eth-sepolia.blockscout.com), a public block explorer. It can lag behind the network by a few seconds and does not yet include ETH or tokens moved to you by smart contracts.';
+  'History comes from Blockscout (eth-sepolia.blockscout.com), a public block explorer. It can lag behind the network by a few seconds. Token amounts, token names and labels are claims made by Blockscout and are not verified by Nerafi.';
 
 const SKELETON_ROWS = [0, 1, 2, 3, 4, 5];
 
@@ -23,11 +27,11 @@ const FILTERS = [
 type FilterValue = 'all' | 'sent' | 'received';
 
 type ActivityPageProps = {
-  id: string | null;
+  activityRef: ActivityRef | null;
   onBackToActivity: () => void;
 };
 
-export function ActivityPage({ id, onBackToActivity }: ActivityPageProps) {
+export function ActivityPage({ activityRef, onBackToActivity }: ActivityPageProps) {
   const { address } = useWallet();
   const feed = useHistoryFeed(address);
   const [filter, setFilter] = useState<FilterValue>('all');
@@ -36,18 +40,40 @@ export function ActivityPage({ id, onBackToActivity }: ActivityPageProps) {
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return feed.items.filter((item) => {
+      // A failed internal transfer moved no ETH: it is neither sent nor received.
+      if (isInternalItem(item) && item.failed && filter !== 'all') return false;
       if (filter === 'sent' && item.direction !== 'out') return false;
       if (filter === 'received' && item.direction !== 'in') return false;
       if (query !== '') {
-        const haystack = `${item.hash} ${item.from} ${item.to ?? ''}`.toLowerCase();
+        const tokenContract = isTokenItem(item) ? item.tokenAddress : '';
+        const haystack = `${item.hash} ${item.from} ${item.to ?? ''} ${tokenContract}`.toLowerCase();
         if (!haystack.includes(query)) return false;
       }
       return true;
     });
   }, [feed.items, filter, search]);
 
-  if (id !== null) {
-    const item = feed.items.find((entry) => entry.hash.toLowerCase() === id.toLowerCase());
+  if (activityRef !== null) {
+    const wanted = activityRef.hash.toLowerCase();
+    const item = feed.items.find((entry) => {
+      if (entry.hash.toLowerCase() !== wanted) return false;
+      if (activityRef.kind === 'token') return isTokenItem(entry) && entry.logIndex === activityRef.index;
+      if (activityRef.kind === 'internal') return isInternalItem(entry) && entry.index === activityRef.index;
+      return !isTokenItem(entry) && !isInternalItem(entry);
+    });
+    if (item !== undefined && (isTokenItem(item) || isInternalItem(item))) {
+      const transactionLoaded = feed.items.some(
+        (entry) =>
+          entry.hash.toLowerCase() === wanted && !isTokenItem(entry) && !isInternalItem(entry),
+      );
+      return (
+        <TransferDetail
+          item={item}
+          transactionLoaded={transactionLoaded}
+          onBack={onBackToActivity}
+        />
+      );
+    }
     if (item !== undefined) return <ActivityDetail item={item} onBack={onBackToActivity} />;
     if (feed.status === 'ready') {
       return (
@@ -73,13 +99,14 @@ export function ActivityPage({ id, onBackToActivity }: ActivityPageProps) {
   }
 
   const hasItems = feed.items.length > 0;
-  const showEmpty = feed.status === 'ready' && !hasItems;
+  const hasFailures = feed.failedParts.length > 0;
+  const showEmpty = feed.status === 'ready' && !hasItems && !hasFailures;
   const showNoMatch = feed.status === 'ready' && hasItems && filtered.length === 0;
 
   const today = todayKey();
   const yesterday = yesterdayKey();
 
-  const buckets = new Map<string, ActivityItem[]>();
+  const buckets = new Map<string, FeedItem[]>();
   for (const item of filtered) {
     const heading =
       item.timestamp === null ? 'Time unknown' : groupHeading(item.timestamp, today, yesterday);
@@ -148,6 +175,15 @@ export function ActivityPage({ id, onBackToActivity }: ActivityPageProps) {
           </Notice>
         )}
 
+        {feed.status === 'ready' && hasFailures && (
+          <Notice variant="alert">
+            {failureNotes(feed.failedParts).join(' ')} What is shown below is not the full picture.{' '}
+            <button type="button" className="activity-retry" onClick={feed.retry}>
+              Retry
+            </button>
+          </Notice>
+        )}
+
         {showEmpty && <p className="activity-empty">No transactions yet.</p>}
 
         {showNoMatch && (
@@ -163,7 +199,7 @@ export function ActivityPage({ id, onBackToActivity }: ActivityPageProps) {
                 <h2 className="activity-group-heading">{group.heading}</h2>
                 <ul className="activity-group-list">
                   {group.items.map((item) => (
-                    <ActivityRow key={item.hash} item={item} />
+                    <ActivityRow key={feedKey(item)} item={item} />
                   ))}
                 </ul>
               </li>
@@ -191,6 +227,9 @@ export function ActivityPage({ id, onBackToActivity }: ActivityPageProps) {
         )}
       </div>
 
+      {feed.status === 'ready' && feed.extrasIncomplete && (
+        <p className="activity-footnote">{EXTRAS_INCOMPLETE_NOTE}</p>
+      )}
       <p className="activity-footnote">{HISTORY_FOOTNOTE}</p>
     </section>
   );

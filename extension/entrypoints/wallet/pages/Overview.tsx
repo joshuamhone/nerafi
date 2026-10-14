@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { AddressText } from '../../../components/AddressText';
 import { Button } from '../../../components/Button';
 import { Notice } from '../../../components/Notice';
+import { failureNotes } from '../../../lib/wallet/history/combined';
 import { RefreshIcon } from '../../../components/icons';
 import { formatBalance, formatExact } from '../../../lib/wallet/format';
 import { SEPOLIA_CHAIN_ID } from '../../../lib/wallet/network';
 import { useWallet } from '../context';
 import { routeHref } from '../router';
 import { ActivityRow } from './ActivityRow';
+import { TokensSection } from './TokensSection';
 import { useHistoryFeed } from './useHistoryFeed';
 import './Overview.css';
 
@@ -15,6 +17,8 @@ type OverviewProps = {
   addressCorrected: boolean;
   onSend: () => void;
   onReceive: () => void;
+  onAddToken: () => void;
+  onRemoveToken: (address: string) => Promise<void>;
 };
 
 function relativeTime(ts: number | null): string {
@@ -29,7 +33,13 @@ function relativeTime(ts: number | null): string {
   return `${days}d ago`;
 }
 
-export function Overview({ addressCorrected, onSend, onReceive }: OverviewProps) {
+export function Overview({
+  addressCorrected,
+  onSend,
+  onReceive,
+  onAddToken,
+  onRemoveToken,
+}: OverviewProps) {
   const {
     address,
     balanceWei,
@@ -107,6 +117,8 @@ export function Overview({ addressCorrected, onSend, onReceive }: OverviewProps)
             </Button>
           </div>
 
+          <TokensSection onAdd={onAddToken} onRemove={onRemoveToken} />
+
           <section className="panel address-block">
             <span className="address-label">Your address</span>
             <AddressText value={address} />
@@ -137,7 +149,16 @@ export function Overview({ addressCorrected, onSend, onReceive }: OverviewProps)
               </Notice>
             )}
 
-            {feed.status === 'ready' && feed.items.length === 0 && (
+            {feed.status === 'ready' && feed.failedParts.length > 0 && (
+              <Notice variant="alert">
+                {failureNotes(feed.failedParts).join(' ')}{' '}
+                <button type="button" className="inline-retry" onClick={feed.retry}>
+                  Retry
+                </button>
+              </Notice>
+            )}
+
+            {feed.status === 'ready' && feed.items.length === 0 && feed.failedParts.length === 0 && (
               <p className="recent-empty">No transactions yet.</p>
             )}
 

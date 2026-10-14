@@ -1,11 +1,17 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { isAddress } from 'viem';
 import type { StoredAccount } from '../../lib/wallet/accounts';
 import type { KnownAddress } from '../../lib/wallet/lookalike';
 import { createSepoliaClient, SEPOLIA_CHAIN_ID, SEPOLIA_RPC_URL } from '../../lib/wallet/network';
+import { createTokenClient, readTokenBalances } from '../../lib/wallet/tokens';
+import type { Token } from '../../lib/wallet/tokens';
 
 export type NetworkStatus = 'checking' | 'reachable' | 'unreachable';
+
+// Lower-case token address -> balance. null means the read failed (shown as
+// "Couldn't load", never as 0); a missing key means not read yet.
+export type TokenBalances = Record<string, bigint | null>;
 
 type WalletContextValue = {
   address: string;
@@ -24,6 +30,9 @@ type WalletContextValue = {
   manageAccounts: () => void;
   addAccount: () => void;
   known: KnownAddress[];
+  tokens: Token[];
+  tokenBalances: TokenBalances;
+  tokenBalancesLoading: boolean;
 };
 
 const WalletContext = createContext<WalletContextValue | null>(null);
@@ -45,6 +54,7 @@ type WalletProviderProps = {
   onManageAccounts: () => void;
   onAddAccount: () => void;
   known: KnownAddress[];
+  tokens: Token[];
   children: ReactNode;
 };
 
@@ -57,6 +67,7 @@ export function WalletProvider({
   onManageAccounts,
   onAddAccount,
   known,
+  tokens,
   children,
 }: WalletProviderProps) {
   const [balanceWei, setBalanceWei] = useState<bigint | null>(null);
@@ -65,8 +76,10 @@ export function WalletProvider({
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [network, setNetwork] = useState<NetworkStatus>('checking');
   const [blockNumber, setBlockNumber] = useState<bigint | null>(null);
+  const [tokenBalances, setTokenBalances] = useState<TokenBalances>({});
+  const [tokenBalancesLoading, setTokenBalancesLoading] = useState(false);
 
-  const refresh = useCallback(() => {
+  const refreshEth = useCallback(() => {
     if (!isAddress(address)) {
       setNetwork('unreachable');
       setBalanceError('Could not reach the Sepolia network.');
@@ -106,9 +119,56 @@ export function WalletProvider({
     };
   }, [address]);
 
+  const refreshTokens = useCallback(() => {
+    if (tokens.length === 0) {
+      setTokenBalances({});
+      setTokenBalancesLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setTokenBalancesLoading(true);
+    void (async () => {
+      try {
+        const results = await readTokenBalances(createTokenClient(), address, tokens);
+        if (cancelled) return;
+        const next: TokenBalances = {};
+        for (const result of results) next[result.address.toLowerCase()] = result.balance;
+        setTokenBalances(next);
+      } catch {
+        if (cancelled) return;
+        const failed: TokenBalances = {};
+        for (const token of tokens) failed[token.address.toLowerCase()] = null;
+        setTokenBalances(failed);
+      } finally {
+        if (!cancelled) setTokenBalancesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [address, tokens]);
+
+  // The one refresh the rest of the wallet calls: ETH balance and token
+  // balances together, so tokens follow the same cadence as the ETH balance.
+  // Held in a ref so `refresh` keeps one identity when the token list changes;
+  // consumers (the history feed) re-run their own effects if it changes.
+  const refreshTokensRef = useRef(refreshTokens);
   useEffect(() => {
-    return refresh();
-  }, [refresh]);
+    refreshTokensRef.current = refreshTokens;
+  }, [refreshTokens]);
+
+  const refresh = useCallback(() => {
+    refreshEth();
+    refreshTokensRef.current();
+  }, [refreshEth]);
+
+  useEffect(() => {
+    return refreshEth();
+  }, [refreshEth]);
+
+  useEffect(() => {
+    return refreshTokens();
+  }, [refreshTokens]);
 
   const lock = useCallback(() => onLock(), [onLock]);
 
@@ -129,6 +189,9 @@ export function WalletProvider({
     manageAccounts: onManageAccounts,
     addAccount: onAddAccount,
     known,
+    tokens,
+    tokenBalances,
+    tokenBalancesLoading,
   };
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
