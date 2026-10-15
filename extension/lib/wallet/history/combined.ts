@@ -1,3 +1,4 @@
+import { isNativeEthLogAddress } from '../nativeEthLog';
 import type {
   ExtraPage,
   FeedItem,
@@ -70,7 +71,10 @@ export function mergeFeed(
   internal: InternalTransferItem[],
   tokens: TokenTransferItem[],
 ): FeedItem[] {
-  const all: FeedItem[] = [...transactions, ...visibleInternalTransfers(internal), ...tokens];
+  // Native-ETH transfer logs (from the system address) are parsed like any other
+  // item but are not tokens, so they are not rows. Matched by address only.
+  const realTokens = tokens.filter((item) => !isNativeEthLogAddress(item.tokenAddress));
+  const all: FeedItem[] = [...transactions, ...visibleInternalTransfers(internal), ...realTokens];
   return all
     .map((item, order) => ({ item, order }))
     .sort((a, b) => {

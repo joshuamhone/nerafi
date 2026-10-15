@@ -2,6 +2,7 @@ import { browser } from 'wxt/browser';
 import { erc20Abi, getAddress, isAddress } from 'viem';
 import type { Address, Hex } from 'viem';
 import { assertSepolia, createSepoliaClient } from './network';
+import { isNativeEthLogAddress } from './nativeEthLog';
 import { sanitizeTokenName, sanitizeTokenSymbol } from './tokenText';
 
 export const TOKENS_KEY = 'nerafi.tokens';
@@ -142,6 +143,8 @@ export async function removeToken(address: string): Promise<Token[]> {
 export function sameSymbolAddresses(tokens: Token[]): Set<string> {
   const bySymbol = new Map<string, string[]>();
   for (const token of tokens) {
+    // The native-ETH log address is not a token and takes no part in symbol clashes.
+    if (isNativeEthLogAddress(token.address)) continue;
     const key = token.symbol.toLowerCase();
     const list = bySymbol.get(key);
     if (list === undefined) bySymbol.set(key, [token.address.toLowerCase()]);

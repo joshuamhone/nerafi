@@ -1,4 +1,11 @@
-export type Route = 'overview' | 'activity' | 'send' | 'receive' | 'contacts' | 'settings';
+export type Route =
+  | 'overview'
+  | 'activity'
+  | 'send'
+  | 'receive'
+  | 'contacts'
+  | 'security'
+  | 'settings';
 
 export const DEFAULT_ROUTE: Route = 'overview';
 
@@ -11,6 +18,7 @@ export function parseRoute(hash: string): Route {
   if (value === '/send' || value === 'send') return 'send';
   if (value === '/receive' || value === 'receive') return 'receive';
   if (value === '/contacts' || value === 'contacts') return 'contacts';
+  if (value === '/security' || value === 'security') return 'security';
   if (value === '/settings' || value === 'settings') return 'settings';
   if (
     value === '/activity' ||

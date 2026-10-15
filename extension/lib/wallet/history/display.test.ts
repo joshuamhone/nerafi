@@ -28,8 +28,25 @@ const normal = parseTokenTransfersResponse(
   load('token-transfers-live.json'),
   '0x69ffa62060b9e425166f35789C4EeAc69EFFB37b',
 ).items[0];
+// The null-metadata items in token-transfers-native-eth-live.json are native-ETH
+// transfer logs from the system address, not tokens, and no live token with null
+// metadata turned up. So this stand-in is SYNTHETIC: the real item with a
+// different (ordinary) token address.
+const nativeRaw = load('token-transfers-native-eth-live.json');
+const nativeFirst = nativeRaw.items[0] ?? {};
 const noDecimals = parseTokenTransfersResponse(
-  load('token-transfers-nulldecimals-live.json'),
+  {
+    items: [
+      {
+        ...nativeFirst,
+        token: {
+          ...(nativeFirst.token as Record<string, unknown>),
+          address_hash: '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC',
+        },
+      },
+    ],
+    next_page_params: null,
+  },
   '0x1Cd95D029a45f59c71AE0040e6A0a570091E3ac0',
 ).items[0];
 

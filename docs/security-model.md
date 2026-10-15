@@ -19,7 +19,8 @@ change password), unlock backoff, and a local security log. Milestone 7 adds a
 local address book, recipient classification on the send form and review
 cheque, and lookalike (address-poisoning) warnings. Milestone 8 adds a manual
 list of ERC-20 tokens with read-only balances, and internal-transfer and
-token-transfer rows in Activity.
+token-transfer rows in Activity. Milestone 9 adds advisory risk findings on the
+review cheque and a Security Center page.
 
 What Nerafi does today:
 
@@ -593,7 +594,7 @@ the system clock can shorten or end a lockout. This is stated plainly in
   detail. The types are lock/unlock, auto-lock, failed unlock, lockout started,
   password changed, account added, account renamed, auto-lock changed, address
   mismatch, wallet restored, contact added, contact removed, contact renamed,
-  lookalike acknowledged, token added, and token removed.
+  lookalike acknowledged, token added, token removed, and risk acknowledged.
 - Details are only fixed formats such as `"Account 3"` or `"5 minutes"`. The log
   never contains addresses, amounts, user-entered names, passwords, phrases, or
   keys. The contact and lookalike events are recorded with no detail at all, so a
@@ -858,6 +859,37 @@ others.
   so ("this list may be incomplete") when Blockscout reports more. The detail view
   of these rows carries the same first-page-only source note.
 
+### Native ETH transfers that Blockscout lists as token transfers
+
+On Sepolia a native ETH transfer is also written to the transaction's logs as an
+ERC-20-style `Transfer(sender, receiver, value)` event emitted from the system address
+`0xfffffffffffffffffffffffffffffffffffffffe` (the EIP-7708 behaviour). Blockscout
+returns these events in the token-transfers list, as "ERC-20" transfers of a token
+with null symbol, name and decimals. They are not tokens.
+
+- **How it was checked.** For transaction `0x3ca85c21…1ec5`, a plain ETH send
+  between two ordinary accounts, the transaction's value equals the event's data, the
+  transaction has exactly one log, and that log's address is the system address.
+  Blockscout reports no contract at that address. The EVM sets a log's address to the
+  account whose code emitted it, so a token contract cannot emit a log under this
+  address.
+- **What Nerafi does.** Such items are parsed normally, then excluded from Activity's
+  token rows, from the Security Center counts (unlisted tokens received, zero-value
+  inbound transfers, lookalike senders) and from the same-symbol check. The match is
+  the exact address only, case-insensitive. They are not reported as entries that
+  could not be read. A detail link for one shows the existing "not in the loaded
+  history" message.
+- **What it does not do.** Nothing is hidden because its metadata is null or for any
+  other reason: a real token that reports null metadata is still shown as an unlisted
+  token, and the ETH transfer itself still appears as an ordinary transaction row.
+- **Earlier fixtures.** The fixture once called `token-transfers-nulldecimals-live.json`
+  (now `token-transfers-native-eth-live.json`) holds two of these native-ETH events,
+  not a token with null metadata. No live token with null metadata was found; tests
+  for that case use a labelled synthetic variation.
+- **Dependence on Blockscout and the network.** This relies on the network and
+  Blockscout continuing to behave this way. A filter by address would be wrong if the
+  address were ever assigned to a real token.
+
 ### Zero-value transfers
 
 An incoming token transfer with value 0 is shown with: "Zero-value transfer.
@@ -887,3 +919,124 @@ with no detail, so a token's address, symbol or name never enters the log.
   the user chose to list.
 - The token list, like the address book, is local and not integrity-protected; a
   changed browser profile can change it.
+
+## Risk findings and Security Center (Milestone 9)
+
+Milestone 9 adds two things: a list of findings on the review cheque ("Before you
+sign"), and a Security Center page for wallet-level checks. Both are advisory.
+Neither changes what is signed, the signing code, the vault, the session or the
+unlock design, and the manifest still requests only `storage`.
+
+### What a finding is, and why there is no score
+
+A finding has an id, a severity (`info`, `caution` or `danger`), a title, a short
+plain explanation of what it means, and one sentence on what to do. A report is
+the list of findings, sorted danger first, plus the highest severity present (or
+`none`) and which checks ran and which could not.
+
+There is deliberately no numeric score and no "risk level" out of ten. A single
+number hides which rule fired and invites false precision, and "low" reads as
+"fine". Each finding says what it noticed and why, so the user can judge it.
+The wording avoids calling anything safe, secure or verified: when nothing fires
+the cheque says only "No warnings found. This is not a guarantee."
+
+### Findings are advisory and heuristic
+
+- Every threshold below is a rule of thumb, not a measured or validated limit.
+  A finding means "worth a second look". No finding means only that none of
+  these particular checks fired.
+- The engine (`lib/wallet/risk/assess.ts`) is a pure function: no network, no
+  storage, no clock, and it does not modify its input. It does not import the
+  signing code, and the amount, recipient and fee that get signed are exactly the
+  ones on the review, whatever the findings say.
+- Checks can fail, and a failed check is reported rather than hidden.
+
+### Transaction rules (review cheque)
+
+| Id | Severity | Fires when |
+|---|---|---|
+| `lookalike_recipient` | danger | the recipient is classified as a lookalike of a known address (the finding names it by label) |
+| `burn_address` | danger | the recipient is `0x000…000` or `0x…dEaD` |
+| `sending_to_token_contract` | danger | the recipient is the contract address of a token in your list |
+| `recipient_is_contract` | caution | the recipient has code and is not a listed token |
+| `first_time_recipient` | caution | the recipient is classified unknown |
+| `large_share_of_balance` | caution | amount + maximum fee is 90% or more of the balance (integer maths: `(amount + fee) × 10 ≥ balance × 9`) |
+| `high_fee_ratio` | caution | the amount is above zero and the maximum fee is more than 10% of it (`fee × 10 > amount`) |
+| `self_send` | info | the recipient is the account being sent from |
+| `contract_check_failed` | caution | the contract lookup could not be completed; `contract_lookup` is then listed as a check that could not run |
+
+The 90% and 10% limits are named constants in the code, each commented as a
+heuristic, and are tested exactly at the boundary and one wei either side.
+
+### The one network check
+
+`eth_getCode` on the recipient, through the existing RPC client (no new host).
+`contract` means the address has code, `eoa` means it has none, and anything else
+(an error, a timeout of eight seconds, an unexpected answer) is `unknown`; a
+failed lookup is never treated as "no contract". The result is stored together
+with the address it was fetched for, and the cheque uses it only when that address
+is the current recipient (case-insensitive); a result for any other address is
+ignored. The cheque appears at once with "Checking this address..." and signing
+stays disabled, in the button and in the send handler, until the current
+recipient's check finishes or times out into `unknown`. Like every RPC answer, the result is only as good as
+the endpoint (see `KNOWN_ISSUES.md`).
+
+### The acknowledgement gate
+
+Any `danger` finding blocks signing until the user ticks one checkbox, whose
+wording names the danger (for a lookalike alone it is the earlier sentence, "I
+have checked every character. This is not …"). The gate `canSignReport` is a pure
+function used twice, as `canSign` already is: it disables "Sign and send", and the
+send handler returns before the vault is opened if it is false or if the check has
+not finished. There is one shared checkbox and one boolean for both the lookalike
+gate and the report gate; the checkbox resets when the recipient changes or the
+send flow resets, and it is never stored. Sending after acknowledging a danger is
+recorded as `risk acknowledged` in the security log with no detail.
+
+### Security Center (wallet checks)
+
+The page (`#/security`) runs `assessWallet` over state that is already stored or
+loaded, and makes no request of its own.
+
+| Id | Severity | Fires when |
+|---|---|---|
+| `auto_lock_long` | caution | auto-lock is longer than 30 minutes |
+| `recent_failed_unlocks` | info (1–2) or caution (3+) | failed password attempts in the security log in the last 24 hours. The log records one whenever a password is checked and is wrong: at unlock, when sending, when adding an account and when changing the password |
+| `zero_value_inbound` | caution | incoming zero-value token transfers in the loaded Activity |
+| `lookalike_senders` | caution | distinct incoming senders in the loaded Activity that resemble a known address |
+| `token_symbol_clash` | caution | two listed tokens share a symbol |
+| `unlisted_tokens_received` | info | distinct unlisted token contracts that sent to you in the loaded Activity (native-ETH logs from the system address are not tokens and are not counted) |
+| `permissions_expanded` | danger | the runtime manifest's permissions are not exactly `["storage"]`, or any host permission exists, or the manifest cannot be read |
+| `permissions_minimal` | info | the manifest matches: "This extension can only use browser storage. It has no access to websites." |
+
+- The Activity-based checks use the history the Activity feed has already loaded,
+  kept in memory only, stored together with the account address it was loaded for
+  and read back only for that same active account. It is cleared when the wallet
+  locks, when the session expires and when you switch account. If nothing has loaded
+  yet, those checks are skipped and the page says so instead of reporting them
+  clear. If Activity loaded only partly, the page says that too. These addresses
+  are shown as counts and never added to the known set, the address book or any
+  list.
+- The permissions check reads `browser.runtime.getManifest()`, so it is the
+  extension reporting on itself, not independent proof; the page says so. A
+  development build run with `npm run dev` adds extra permissions for its
+  reloading tools, and this check will correctly flag them. When it fails, the
+  page adds the sentence "Development builds add extra permissions. If you are
+  running a build made with the development server, this is expected; check a
+  production build." below the finding; the severity does not change.
+- The Security Center links to the Settings page for the security log, auto-lock
+  and password instead of repeating them.
+- "What Nerafi watches for" lists five threats with what Nerafi does and does not
+  do about each. Phishing sites and malicious approvals are stated as not covered
+  yet.
+
+### What this does not cover
+
+- Transaction data (calldata): Nerafi signs only plain ETH transfers and cannot
+  decode what a contract would do with ETH sent to it.
+- Token approvals: none are created, listed or revoked.
+- Phishing domains: Nerafi has no connection to websites and does not recognise
+  fake ones.
+- Simulation: nothing predicts the effect of a transaction.
+- Contract reputation: a contract is only noticed as a contract, not judged.
+- Any address that is a lookalike of one you have never saved or sent to.

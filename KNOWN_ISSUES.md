@@ -111,6 +111,41 @@ Received filter and the search apply to what is loaded. Internal calls that move
 no ETH are not listed. If one of the three requests fails, Activity shows the
 other two with a note naming the part that failed.
 
+## Blockscout reports native ETH transfers as token transfers
+
+**Verified finding, handled by filtering.** On Sepolia, a native ETH transfer is also
+written to the transaction's logs as an ERC-20-style `Transfer` event emitted from the
+system address `0xfffffffffffffffffffffffffffffffffffffffe` (the EIP-7708 behaviour).
+Blockscout therefore returns these events in its token-transfers list as "ERC-20"
+transfers of a token with no symbol, name or decimals. They are not tokens: for
+example, transaction `0x3ca85c21…1ec5` is a plain ETH send between two ordinary
+accounts whose only log is one of these events, with event data equal to the
+transaction's value. Left alone, each ETH transfer showed up in Activity as a "Token
+transfer ... Amount unavailable ... Unlisted token" row and inflated the Security
+Center's "unlisted tokens" count.
+
+Nerafi parses these items like any other and then leaves them out of Activity's token
+rows, the Security Center counts (unlisted tokens received, zero-value inbound,
+lookalike senders) and the same-symbol check, by **exact address match only**
+(case-insensitive). They are not counted as "entries that couldn't be read". Nothing
+is hidden because its metadata is null: a real token that reports null metadata still
+shows as an unlisted token. Opening a detail link for one of these events shows the
+existing "not in the loaded history" message. The ETH itself still appears through
+its ordinary transaction row (and, for contract calls, the internal-transfer rows).
+
+**Earlier fixtures.** The fixture previously named `token-transfers-nulldecimals-live.json`
+(now `token-transfers-native-eth-live.json`) held two such events, from contract calls
+that carried ETH, one of them a `deposit()`. They were described earlier as "a token
+transfer whose symbol, name and decimals were all null"; they were native ETH logs,
+not a token. No live token with null metadata turned up (about 1,750 transfers across
+61 addresses were checked), so the tests for "a token with null metadata" use a
+synthetic variation of that real item with an ordinary token address, and say so.
+
+**Limits of this check.** It relies on Blockscout reporting the system address as it
+does today, and the same-address filter would stop being right if the network assigned
+that address to something else. I could not read the system address's code from the
+RPC in the environment where this was checked; Blockscout reports no contract there.
+
 ## Internal-transaction parser coverage of real responses
 
 **Status of the fixtures.** The internal-transaction and token-transfer parsers
@@ -119,8 +154,10 @@ were written against live Blockscout responses saved under
 `token-transfers-*-live.json`), and every item in them parses. The live samples
 cover zero-value `call`, `staticcall` and `delegatecall` entries, a `call` that
 carried ETH from a contract flagged as a scam, a contract `create` whose `to` is
-null (the wallet is the created contract), a token transfer with value 0, and a
-token transfer whose symbol, name and decimals were all null. Every file named
+null (the wallet is the created contract), a token transfer with value 0, and two
+native-ETH transfer logs from the system address (reported by Blockscout with a null
+symbol, name and decimals; see "Blockscout reports native ETH transfers as token
+transfers"). Every file named
 `*-live.json` is an unedited, trimmed Blockscout response; fields such as a
 token's `holders_count` have since drifted on the live API, which is the only
 difference from a fresh fetch.
@@ -175,7 +212,7 @@ page and is not guessed into the list).
 
 ## The security log is local and not tamper-proof
 
-**Accepted limitation.** `chrome.storage.local["nerafi.securityLog"]` keeps the last 200 events (locks, unlocks, failed attempts, lockouts, password/account/auto-lock changes, address mismatches, restores, contact changes, token changes, and lookalike acknowledgements) with a type, timestamp, and a short fixed-format detail. The contact, token and lookalike events carry no detail at all, so a contact's name, a token's address or symbol, or an address never enters the log. It never contains addresses, amounts, user names, passwords, phrases, or keys, and there is deliberately no "clear log" button. Because it lives in this browser profile, anyone with access to the profile can read, alter, or clear it. It is a convenience history, not a tamper-evident audit trail.
+**Accepted limitation.** `chrome.storage.local["nerafi.securityLog"]` keeps the last 200 events (locks, unlocks, failed attempts, lockouts, password/account/auto-lock changes, address mismatches, restores, contact changes, token changes, and lookalike and risk acknowledgements) with a type, timestamp, and a short fixed-format detail. The contact, token, lookalike and risk events carry no detail at all, so a contact's name, a token's address or symbol, or an address never enters the log. It never contains addresses, amounts, user names, passwords, phrases, or keys, and there is deliberately no "clear log" button. Because it lives in this browser profile, anyone with access to the profile can read, alter, or clear it. It is a convenience history, not a tamper-evident audit trail.
 
 ## Address book and lookalike warnings are local heuristics
 
@@ -188,3 +225,41 @@ The acknowledgement checkbox on the review cheque gates only the lookalike warni
 ## All accounts share one recovery phrase
 
 **Accepted by design.** Up to ten accounts are derived from the one recovery phrase at `m/44'/60'/0'/0/{index}`. They are separate addresses, not separate secrets: anyone who learns the phrase controls every account, and a compromise of one account's key is a compromise of all of them. The password protects access through the UI, but it does not create per-account isolation. Account names are local display labels only and carry no security meaning.
+
+## Risk thresholds are unvalidated heuristics
+
+**Accepted limitation.** The rules on the review cheque and in the Security Center
+use fixed limits (a send of 90% or more of the balance, a fee above 10% of the
+amount, an auto-lock above 30 minutes, three failed password attempts in 24 hours)
+that were chosen as reasonable rules of thumb and have not been tested against real
+user behaviour or real attacks. They will fire when nothing is wrong and stay quiet
+when something is. There is no score and no "safe" verdict: no warnings means only
+that none of these checks fired.
+
+## The contract check trusts the RPC
+
+**Accepted limitation.** Whether a recipient is a contract comes from one
+`eth_getCode` call to the public RPC endpoint. A wrong or dishonest answer would
+mislabel an address, and a failed or slow lookup (eight-second timeout) is reported
+as "could not check", never as "not a contract". The check also cannot tell what a
+contract does, only that it has code.
+
+## The Security Center reads only locally loaded history
+
+**Accepted limitation.** The Activity-based checks (zero-value transfers, lookalike
+senders, unlisted tokens) look only at the history already loaded in this session,
+which is the first page of each Blockscout list, and are skipped when nothing has
+been loaded. Older activity is not checked. Failed password attempts come from the
+local security log, which can be read or cleared by anyone with access to the
+browser profile and counts wrong passwords at unlock, send, add-account and
+change-password alike.
+
+## The permissions check is a self-report
+
+**Accepted limitation.** The Security Center reads the extension's manifest through
+the extension API. A modified build could report anything, so a clean result is the
+extension describing itself, not independent proof. A development build adds extra
+permissions for its reloading tools and is flagged by this check at the same
+severity; the page adds the note "Development builds add extra permissions. If you
+are running a build made with the development server, this is expected; check a
+production build."

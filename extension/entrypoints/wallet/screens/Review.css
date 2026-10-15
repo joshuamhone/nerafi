@@ -225,3 +225,24 @@
     font-size: var(--fs-17);
   }
 }
+
+.cheque-risk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cheque-risk-title {
+  margin: 0;
+  font-size: var(--fs-15);
+  font-weight: 600;
+  color: var(--paper-ink);
+}
+
+.cheque-risk-checking,
+.cheque-risk-none,
+.cheque-risk-failed {
+  margin: 0;
+  font-size: var(--fs-13);
+  color: var(--paper-ink);
+}

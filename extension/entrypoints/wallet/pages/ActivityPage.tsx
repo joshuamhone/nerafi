@@ -10,7 +10,7 @@ import { useHistoryFeed } from './useHistoryFeed';
 import { ActivityDetail } from './ActivityDetail';
 import { ActivityRow } from './ActivityRow';
 import { TransferDetail } from './TransferDetail';
-import { groupHeading, todayKey, yesterdayKey } from './activityUtils';
+import { findFeedItem, groupHeading, todayKey, yesterdayKey } from './activityUtils';
 import './ActivityPage.css';
 
 const HISTORY_FOOTNOTE =
@@ -55,12 +55,7 @@ export function ActivityPage({ activityRef, onBackToActivity }: ActivityPageProp
 
   if (activityRef !== null) {
     const wanted = activityRef.hash.toLowerCase();
-    const item = feed.items.find((entry) => {
-      if (entry.hash.toLowerCase() !== wanted) return false;
-      if (activityRef.kind === 'token') return isTokenItem(entry) && entry.logIndex === activityRef.index;
-      if (activityRef.kind === 'internal') return isInternalItem(entry) && entry.index === activityRef.index;
-      return !isTokenItem(entry) && !isInternalItem(entry);
-    });
+    const item = findFeedItem(feed.items, activityRef);
     if (item !== undefined && (isTokenItem(item) || isInternalItem(item))) {
       const transactionLoaded = feed.items.some(
         (entry) =>
