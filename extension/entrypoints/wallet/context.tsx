@@ -6,6 +6,7 @@ import type { KnownAddress } from '../../lib/wallet/lookalike';
 import { createSepoliaClient, SEPOLIA_CHAIN_ID, SEPOLIA_RPC_URL } from '../../lib/wallet/network';
 import { createTokenClient, readTokenBalances } from '../../lib/wallet/tokens';
 import type { Token } from '../../lib/wallet/tokens';
+import { clearLoadedHistory } from '../../lib/wallet/history/loaded';
 
 export type NetworkStatus = 'checking' | 'reachable' | 'unreachable';
 
@@ -165,6 +166,12 @@ export function WalletProvider({
   useEffect(() => {
     return refreshEth();
   }, [refreshEth]);
+
+  // Loaded history is kept in memory for the Security Center and must not
+  // outlive the unlocked wallet: the provider goes away on lock.
+  useEffect(() => {
+    return () => clearLoadedHistory();
+  }, []);
 
   useEffect(() => {
     return refreshTokens();

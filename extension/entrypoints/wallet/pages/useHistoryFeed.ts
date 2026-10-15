@@ -7,6 +7,7 @@ import {
 } from '../../../lib/wallet/history/combined';
 import type { FeedPart } from '../../../lib/wallet/history/combined';
 import { mergeLocalRecords, pruneLocalTx } from '../../../lib/wallet/history/local';
+import { setLoadedHistory } from '../../../lib/wallet/history/loaded';
 import { isInternalItem } from '../../../lib/wallet/history/types';
 import { fetchInternalTransfers, fetchTokenTransfers } from '../../../lib/wallet/history/transfers';
 import type {
@@ -50,6 +51,10 @@ export function useHistoryFeed(address: string): HistoryFeed {
   const [skipped, setSkipped] = useState(0);
   const [nextCursor, setNextCursor] = useState<Record<string, string> | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  // The address the items in state were actually loaded for. It is set in the
+  // same step as the items, so the shared store never pairs an address with
+  // another account's items.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [moreError, setMoreError] = useState(false);
 
   function provider(): BlockscoutProvider {
@@ -115,6 +120,7 @@ export function useHistoryFeed(address: string): HistoryFeed {
           merged.skipped + (result.internal?.skipped ?? 0) + (result.tokens?.skipped ?? 0),
         );
         setFailedParts(result.failed);
+        setLoadedFor(address);
         setExtrasIncomplete(extrasMayBeIncomplete(result.internal, result.tokens));
         setStatus('ready');
       })();
@@ -129,6 +135,7 @@ export function useHistoryFeed(address: string): HistoryFeed {
     setTokenItems([]);
     setFailedParts([]);
     setExtrasIncomplete(false);
+    setLoadedFor(null);
     setSkipped(0);
     setNextCursor(null);
     firstController.current?.abort();
@@ -174,6 +181,14 @@ export function useHistoryFeed(address: string): HistoryFeed {
     () => mergeFeed(txItems, internalItems, tokenItems),
     [txItems, internalItems, tokenItems],
   );
+
+  // Remember what finished loading, in memory only, so the Security Center can
+  // read it without making a request of its own.
+  useEffect(() => {
+    if (status === 'ready' && loadedFor !== null) {
+      setLoadedHistory({ address: loadedFor, items, failedParts });
+    }
+  }, [status, loadedFor, items, failedParts]);
 
   return {
     items,

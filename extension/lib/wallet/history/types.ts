@@ -1,3 +1,5 @@
+import { isNativeEthLogAddress } from '../nativeEthLog';
+
 export type ActivityDirection = 'out' | 'in' | 'self';
 
 export type ActivityStatus = 'confirmed' | 'failed' | 'pending';
@@ -104,6 +106,12 @@ export function isInternalItem(item: FeedItem): item is InternalTransferItem {
 
 export function isTokenItem(item: FeedItem): item is TokenTransferItem {
   return 'kind' in item && item.kind === 'token';
+}
+
+// A native-ETH transfer log from the system address. It is parsed like any other
+// item but is not a token and is left out of token rows and token counts.
+export function isNativeEthLog(item: FeedItem): boolean {
+  return isTokenItem(item) && isNativeEthLogAddress(item.tokenAddress);
 }
 
 // Unique within a feed: a transaction can hold several transfers.

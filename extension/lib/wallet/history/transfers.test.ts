@@ -23,7 +23,8 @@ const TOKEN_FIXTURES: Fixture[] = [
     account: '0x5496c4A6e05B166dAd2Aa0fab641B2E963A300D4',
   },
   {
-    file: 'token-transfers-nulldecimals-live.json',
+    // Native-ETH transfer logs from the system address (null symbol, name and decimals).
+    file: 'token-transfers-native-eth-live.json',
     account: '0x1Cd95D029a45f59c71AE0040e6A0a570091E3ac0',
   },
 ];
@@ -91,7 +92,7 @@ describe('token transfer parser against live fixtures', () => {
   });
 
   it('keeps unavailable decimals as null and never guesses', () => {
-    const raw = load('token-transfers-nulldecimals-live.json');
+    const raw = load('token-transfers-native-eth-live.json');
     const page = parseTokenTransfersResponse(raw, TOKEN_FIXTURES[2]?.account ?? '');
     expect(page.items).toHaveLength(raw.items.length);
     for (const item of page.items) {

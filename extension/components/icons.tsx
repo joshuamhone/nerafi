@@ -337,3 +337,31 @@ export function ContactsIcon({ size = 16, className }: IconProps) {
     </svg>
   );
 }
+
+export function ShieldIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M8 1.75 3 3.6v3.9c0 3 2.1 5.3 5 6.75 2.9-1.45 5-3.75 5-6.75V3.6L8 1.75Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5.9 8.1 7.3 9.5l2.9-3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

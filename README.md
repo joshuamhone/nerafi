@@ -31,6 +31,9 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **Milestone 8 — complete:** a manual ERC-20 token list with read-only
   balances, and internal-transfer and token-transfer rows in Activity. No token
   sending, no approvals, no automatic token discovery.
+- **Milestone 9 — complete:** advisory risk findings on the review cheque ("Before
+  you sign") and a Security Center page. No score, and no claim that anything is
+  safe.
 
 ## Features
 
@@ -138,7 +141,7 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
   verified to round-trip before it replaces the old one.
 - **Local security log.** The last 200 events (unlock, lock, auto-lock, failed
   unlock, lockout, password/account/auto-lock changes, address mismatch, restore,
-  contact changes, token changes, lookalike acknowledgements) are recorded locally with
+  contact changes, token changes, lookalike and risk acknowledgements) are recorded locally with
   fixed-format details only — never addresses, amounts, names, passwords, or
   phrases.
 
@@ -192,9 +195,35 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
   transfers load separately; if one fails the others are shown with a note naming
   the part that failed. Internal and token lists are first page only, and the page
   says when the list may be incomplete.
+- **Native ETH is not a token.** On Sepolia, Blockscout also lists each ETH transfer as
+  an "ERC-20" transfer from the system address `0xffff…fffe`. Nerafi recognises that
+  exact address and leaves those events out of token rows and token counts.
 - **Counterparties checked, never trusted.** Counterparties of these transfers get
   the same known-name and address-poisoning check as transactions. Nothing read
   from Blockscout is added to the known set.
+
+**Milestone 9 — risk findings and the Security Center**
+
+- **"Before you sign" on the cheque.** A short list of findings under the recipient
+  classification, danger first, each with what it means and what to do. Rules cover
+  a lookalike recipient, a burn address, sending ETH to a token contract from your
+  list, a recipient that is a contract, a first-time recipient, a send of 90% or
+  more of your balance, a fee above 10% of the amount, and sending to yourself.
+  With nothing to report it says "No warnings found. This is not a guarantee."
+- **Advisory, with no score.** There is no number and no "safe" verdict. Findings
+  never change what is signed. Any danger finding needs one acknowledgement (a
+  single checkbox naming the danger) before "Sign and send" is enabled, in the
+  button and again in the send handler.
+- **One network check.** Nerafi asks the existing RPC whether the recipient is a
+  contract. The cheque appears immediately with "Checking this address..." and
+  signing waits for the answer or an eight-second timeout. A failed check is
+  reported as "could not check", never as "not a contract".
+- **Security Center** (`#/security`). Wallet-level checks on what is already stored
+  or loaded, with no requests of its own: long auto-lock, recent failed password
+  attempts, zero-value and lookalike senders in loaded Activity, token symbol
+  clashes, unlisted tokens that sent to you, and the extension's own report of its
+  permissions. It also lists five threats and says plainly what Nerafi does and does
+  not do about each; phishing sites and malicious approvals are not covered yet.
 
 ## Design
 
@@ -295,6 +324,12 @@ extension/
     sentRecipients.ts Local list of addresses already sent to (last 500).
     tokens.ts         Manual ERC-20 token list, verification, and balances.
     tokenText.ts      Sanitising of attacker-controlled token symbols and names.
+    risk/
+      assess.ts       Pure transaction findings engine (the cheque's rules).
+      gather.ts       The one contract lookup, and the token-list comparison.
+      gate.ts         canSignReport, the shared acknowledgement wording.
+      posture.ts      Pure wallet-level findings for the Security Center.
+      threats.ts      The five threats and what Nerafi does and does not do.
     lookalike.ts      Lookalike detection and per-character address diffing.
     recipientSafety.ts  Known-set construction and recipient classification.
     network.ts        Sepolia chain ID, RPC client, and balance lookup.

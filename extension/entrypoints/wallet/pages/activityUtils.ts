@@ -1,5 +1,7 @@
 import { formatExact } from '../../../lib/wallet/format';
-import type { ActivityItem } from '../../../lib/wallet/history/types';
+import { isInternalItem, isTokenItem } from '../../../lib/wallet/history/types';
+import type { ActivityItem, FeedItem } from '../../../lib/wallet/history/types';
+import type { ActivityRef } from '../router';
 
 export type ActivityLabel =
   | 'Contract creation'
@@ -81,4 +83,18 @@ export function formatDay(ts: number): string {
 
 export function formatIso(ts: number): string {
   return new Date(ts).toISOString();
+}
+
+// The row a detail link points at, or undefined when the loaded feed has no such
+// row. A native-ETH log from the system address is never a row, so its link
+// finds nothing and the page shows its existing "not in the loaded history"
+// message instead of a detail view.
+export function findFeedItem(items: FeedItem[], ref: ActivityRef): FeedItem | undefined {
+  const wanted = ref.hash.toLowerCase();
+  return items.find((entry) => {
+    if (entry.hash.toLowerCase() !== wanted) return false;
+    if (ref.kind === 'token') return isTokenItem(entry) && entry.logIndex === ref.index;
+    if (ref.kind === 'internal') return isInternalItem(entry) && entry.index === ref.index;
+    return !isTokenItem(entry) && !isInternalItem(entry);
+  });
 }

@@ -62,6 +62,12 @@ import type { SentRecipient } from '../../lib/wallet/sentRecipients';
 import { buildKnown, canSign, classifyRecipient } from '../../lib/wallet/recipientSafety';
 import type { RecipientInfo } from '../../lib/wallet/recipientSafety';
 import type { KnownAddress } from '../../lib/wallet/lookalike';
+import { assessTransaction } from '../../lib/wallet/risk/assess';
+import { gatherRecipientCode, isListedTokenAddress, selectCodeResult } from '../../lib/wallet/risk/gather';
+import type { CodeResultStore } from '../../lib/wallet/risk/gather';
+import { clearLoadedHistory } from '../../lib/wallet/history/loaded';
+import { canSignReport, hasDanger } from '../../lib/wallet/risk/gate';
+import type { RiskReport } from '../../lib/wallet/risk/types';
 import {
   addToken,
   createTokenClient,
@@ -93,6 +99,7 @@ import { ActivityPage } from './pages/ActivityPage';
 import { Receive } from './pages/ReceivePage';
 import { AddressBookPage } from './pages/AddressBookPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SecurityCenterPage } from './pages/SecurityCenterPage';
 import { AddAccountDialog } from './shell/AddAccountDialog';
 import { AddTokenDialog } from './shell/AddTokenDialog';
 import type { RecipientOption } from './shell/RecipientPicker';
@@ -201,6 +208,9 @@ function App() {
   const [lookalikeAck, setLookalikeAck] = useState(false);
   const [tokens, setTokens] = useState<Token[]>([]);
   const [addTokenOpen, setAddTokenOpen] = useState(false);
+  // The contract-lookup result, stored with the address it was fetched for. The
+  // cheque only uses it when that address is the current recipient.
+  const [codeResult, setCodeResult] = useState<CodeResultStore>(null);
 
   const autoLockDuration = autoLockMs(settings);
 
@@ -245,6 +255,27 @@ function App() {
     () => (review === null ? null : recipientInfoFor(review.to, known, contacts)),
     [review, known, contacts],
   );
+
+  // Advisory only: the report is built from the review the user is looking at
+  // and never changes what gets signed. Null until the address check resolves.
+  const codeSelection = useMemo(
+    () => (review === null ? 'pending' : selectCodeResult(codeResult, review.to)),
+    [review, codeResult],
+  );
+
+  const risk = useMemo<RiskReport | null>(() => {
+    if (review === null || codeSelection === 'pending') return null;
+    return assessTransaction({
+      recipientAddress: review.to,
+      recipient: reviewRecipientInfo ?? { kind: 'unknown' },
+      recipientCode: codeSelection,
+      recipientIsListedToken: isListedTokenAddress(tokens, review.to),
+      amountWei: review.valueWei,
+      feeWei: review.maxFeeWei,
+      balanceWei: review.balanceWei,
+      isSelfSend: review.to.toLowerCase() === address.toLowerCase(),
+    });
+  }, [review, codeSelection, reviewRecipientInfo, address, tokens]);
 
   async function refreshSecurityLog() {
     setSecurityLog(await loadSecurityLog());
@@ -358,9 +389,32 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (step !== 'unlocked' || route !== 'settings') return;
+    if (step !== 'unlocked' || (route !== 'settings' && route !== 'security')) return;
     void refreshSecurityLog();
   }, [step, route]);
+
+  // The one network check for the cheque: is the recipient a contract? The
+  // cheque is shown straight away with "Checking this address..." and signing
+  // stays off until this resolves, into 'unknown' on error or timeout.
+  useEffect(() => {
+    if (sendStep !== 'review' || review === null) {
+      setCodeResult(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const lookedUp = review.to;
+    const client = createSepoliaClient();
+    void gatherRecipientCode(
+      { getCode: (target) => client.getCode({ address: target }) },
+      lookedUp,
+    ).then((code) => {
+      // Stored with its own address, and dropped if the review has moved on.
+      if (!cancelled) setCodeResult({ address: lookedUp, code });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sendStep, review]);
 
   useEffect(() => {
     if (step !== 'unlocked') return undefined;
@@ -368,6 +422,7 @@ function App() {
       void (async () => {
         const unlockedAddress = await getUnlockedAddress();
         if (unlockedAddress === null) {
+          clearLoadedHistory();
           setAddTokenOpen(false);
           setStep('locked');
           navigate('overview');
@@ -546,6 +601,7 @@ function App() {
 
   async function handleLock() {
     setBusy(true);
+    clearLoadedHistory();
     try {
       await lock();
       await appendSecurityLog('lock_manual');
@@ -563,6 +619,8 @@ function App() {
   async function handleSwitchAccount(index: number) {
     const result = await switchAccount(index);
     if (!result.ok) return;
+    // History loaded for the previous account must not be read for this one.
+    clearLoadedHistory();
     resetSendFlow();
     setActiveIndex(result.index);
     setAddress(result.address);
@@ -744,6 +802,10 @@ function App() {
     event.preventDefault();
     if (review === null) return;
     if (!canSign(reviewRecipientInfo, lookalikeAck)) return;
+    // The risk gate, in logic as well as in the button: no report yet, or an
+    // unacknowledged danger, and nothing is signed and the vault stays shut.
+    if (codeSelection === 'pending' || risk === null) return;
+    if (!canSignReport(risk, lookalikeAck)) return;
     setReviewError('');
     setBusy(true);
     try {
@@ -776,6 +838,9 @@ function App() {
         });
       if (reviewRecipientInfo !== null && reviewRecipientInfo.kind === 'lookalike' && lookalikeAck) {
         await appendSecurityLog('lookalike_acknowledged');
+      }
+      if (hasDanger(risk) && lookalikeAck) {
+        await appendSecurityLog('risk_acknowledged');
       }
     } catch (err) {
       const until = await readLockoutUntil();
@@ -905,6 +970,7 @@ function App() {
                 review={review}
                 address={address}
                 recipientInfo={reviewRecipientInfo}
+                risk={risk}
                 acknowledged={lookalikeAck}
                 password={sendPassword}
                 error={reviewError}
@@ -944,6 +1010,10 @@ function App() {
                 onRename={handleRenameContact}
                 onRemove={handleRemoveContact}
               />
+            )}
+
+            {route === 'security' && (
+              <SecurityCenterPage autoLockMinutes={settings.autoLockMinutes} log={securityLog} />
             )}
 
             {route === 'settings' && (

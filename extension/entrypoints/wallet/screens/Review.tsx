@@ -1,12 +1,22 @@
 import type { FormEvent } from 'react';
 import { AddressText } from '../../../components/AddressText';
 import { Button } from '../../../components/Button';
+import { FindingList } from '../../../components/FindingList';
 import { Guilloche } from '../../../components/Guilloche';
 import { Notice } from '../../../components/Notice';
 import { RecipientNotice } from '../../../components/RecipientNotice';
 import { formatAtMost, formatExact } from '../../../lib/wallet/format';
 import { SEPOLIA_CHAIN_ID } from '../../../lib/wallet/network';
 import { canSign } from '../../../lib/wallet/recipientSafety';
+import { plainCheckName } from '../../../lib/wallet/risk/assess';
+import {
+  acknowledgementLabel,
+  canSignReport,
+  CHECKING_ADDRESS_TEXT,
+  hasDanger,
+  NO_WARNINGS_TEXT,
+} from '../../../lib/wallet/risk/gate';
+import type { RiskReport } from '../../../lib/wallet/risk/types';
 import type { RecipientInfo } from '../../../lib/wallet/recipientSafety';
 import type { Review } from '../../../lib/wallet/send';
 import { totalLeavingSentence } from '../../../lib/wallet/reviewCopy';
@@ -16,6 +26,8 @@ type ReviewProps = {
   review: Review;
   address: string;
   recipientInfo: RecipientInfo | null;
+  // null while the address check is still running.
+  risk: RiskReport | null;
   acknowledged: boolean;
   password: string;
   error: string;
@@ -30,6 +42,7 @@ export function ReviewScreen({
   review,
   address,
   recipientInfo,
+  risk,
   acknowledged,
   password,
   error,
@@ -39,9 +52,14 @@ export function ReviewScreen({
   onSubmit,
   onCancel,
 }: ReviewProps) {
-  const selfSend = review.to.toLowerCase() === address.toLowerCase();
   const lookalike = recipientInfo?.kind === 'lookalike' ? recipientInfo : null;
-  const signDisabled = busy || !review.sufficient || !canSign(recipientInfo, acknowledged);
+  // Signing waits for the address check, and both gates share one checkbox.
+  const signDisabled =
+    busy ||
+    !review.sufficient ||
+    risk === null ||
+    !canSign(recipientInfo, acknowledged) ||
+    !canSignReport(risk, acknowledged);
 
   return (
     <section className="screen">
@@ -122,26 +140,48 @@ export function ReviewScreen({
 
           <div className="cheque-notices">
             {lookalike !== null && (
-              <>
-                <RecipientNotice info={lookalike} address={review.to} onPaper />
-                <label className="cheque-ack">
-                  <input
-                    type="checkbox"
-                    checked={acknowledged}
-                    onChange={(e) => onAcknowledge(e.target.checked)}
-                  />
-                  <span>
-                    I have checked every character. This is not {lookalike.match.known.label}.
-                  </span>
-                </label>
-              </>
+              <RecipientNotice info={lookalike} address={review.to} onPaper />
             )}
 
-            {selfSend && (
-              <Notice variant="alert" onPaper>
-                You are sending to your own address.
-              </Notice>
-            )}
+            <section className="cheque-risk" aria-labelledby="cheque-risk-title">
+              <h2 className="cheque-risk-title" id="cheque-risk-title">
+                Before you sign
+              </h2>
+
+              {risk === null ? (
+                <p className="cheque-risk-checking" role="status">
+                  {CHECKING_ADDRESS_TEXT}
+                </p>
+              ) : (
+                <>
+                  {risk.findings.length === 0 ? (
+                    <p className="cheque-risk-none">{NO_WARNINGS_TEXT}</p>
+                  ) : (
+                    <FindingList findings={risk.findings} onPaper />
+                  )}
+
+                  {risk.checksFailed.length > 0 && (
+                    <p className="cheque-risk-failed">
+                      Some checks could not run:{' '}
+                      {risk.checksFailed.map(plainCheckName).join(', ')}.
+                    </p>
+                  )}
+
+                  {hasDanger(risk) && (
+                    <label className="cheque-ack">
+                      <input
+                        type="checkbox"
+                        checked={acknowledged}
+                        onChange={(e) => onAcknowledge(e.target.checked)}
+                      />
+                      <span>
+                        {acknowledgementLabel(risk, lookalike?.match.known.label ?? null)}
+                      </span>
+                    </label>
+                  )}
+                </>
+              )}
+            </section>
 
             {!review.sufficient && (
               <Notice variant="alert" onPaper>

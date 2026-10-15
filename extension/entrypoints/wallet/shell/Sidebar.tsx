@@ -8,6 +8,7 @@ import {
   ReceiveIcon,
   SendIcon,
   SettingsIcon,
+  ShieldIcon,
 } from '../../../components/icons';
 import type { IconProps } from '../../../components/icons';
 import { Seal } from '../../../components/Seal';
@@ -28,6 +29,7 @@ const NAV: Array<{ route: Route; label: string; Icon: ComponentType<IconProps> }
   { route: 'send', label: 'Send', Icon: SendIcon },
   { route: 'receive', label: 'Receive', Icon: ReceiveIcon },
   { route: 'contacts', label: 'Address book', Icon: ContactsIcon },
+  { route: 'security', label: 'Security Center', Icon: ShieldIcon },
   { route: 'settings', label: 'Settings', Icon: SettingsIcon },
 ];
 
