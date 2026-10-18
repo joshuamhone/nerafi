@@ -263,3 +263,55 @@ permissions for its reloading tools and is flagged by this check at the same
 severity; the page adds the note "Development builds add extra permissions. If you
 are running a build made with the development server, this is expected; check a
 production build."
+
+## Approvals discovery trusts Blockscout and can be incomplete
+
+**Accepted limitation.** The Approvals page finds candidates from Blockscout `getLogs`
+requests for `Approval` events with the account as owner. Each reply is capped at 1,000
+logs, ordered oldest first, with `page` and `offset` ignored, so Nerafi continues from the
+last block seen and makes at most three requests per refresh; an account with more than
+about 3,000 such logs can be missing its **newest** approvals, and the page says the list
+may be incomplete. Only the 100 most recent distinct (token, spender) pairs are checked.
+Blockscout can also be slow (one test got no answer in 90 seconds, so discovery has one 60-second
+budget across all its requests and fails as a whole when it is spent; the on-chain checks
+that follow are separate), can lag the network,
+or can return nothing useful. Keyless requests are tightly rate limited (a short run of
+test requests was enough to get HTTP 429 for most of an hour): discovery runs only when
+the page is opened or Refresh is pressed (disabled for 10 seconds after a press), is never
+retried automatically, and any failure mid-sequence fails the whole load rather than
+showing a partial list. Allowances granted through Permit2 or a signed permit leave no
+`Approval` log from the token and are not found at all; NFT approvals are not listed.
+
+Keyless Blockscout allows about 10 requests per rate-limit window (about 14 minutes in the
+latest measurement; an earlier reading was as long as about 46 minutes), and one Refresh can
+use up to 3 of them, so repeated Refreshes will be rate limited. A rate limit is shown as an
+error with the wait taken from the `x-ratelimit-reset` header when it is readable (it is
+listed in Blockscout's `access-control-expose-headers`), and as "This can take 15 minutes or
+more to clear" otherwise; it is never shown as "no approvals" and is never retried.
+
+## Allowance reads trust the RPC
+
+**Accepted limitation.** Whether an approval is active comes from `allowance(owner,
+spender)` read from the public RPC endpoint, and a token contract can return any number
+it likes. A wrong or dishonest answer would show a wrong amount, hide an active
+approval or invent one. A failed read goes to "Couldn't check" rather than being shown
+as zero. Token names and symbols are chosen by the token's deployer; they are sanitised
+but can still mislead, which is why the full contract address is shown.
+
+## Approvals fixtures cover only the owners I could find
+
+**Status of the fixtures.** The Approvals parser was written against live Blockscout
+responses under `lib/wallet/approvals/fixtures/`, and every item in them is parsed or
+counted. They cover ERC-20 `Approval` logs and ERC-721-style logs with four topics.
+Saved per-owner responses (the same `topic1` query the wallet sends): an owner with
+several approvals (6 unedited items out of 448), a small owner (a whole response of 2
+logs), an owner with ERC-721-style approvals (3 unedited items out of 8), and a real
+empty result (`{"message":"No logs found","result":[],"status":"0"}`). A block-range
+response with several owners is kept as extra coverage. Every item in them is read or
+counted. Only the four owners I could find on Sepolia were tested, so shapes that only
+other accounts produce (other token types, unusual log data) have not been seen. Paging
+by `fromBlock` was checked live once, for one account, over two requests; three-request
+sequences and every mid-sequence failure are tested with mocked pages, not against the
+live API. The allowance, symbol, name, decimals and `eth_getCode` reads were never run
+against the live RPC (it was unreachable from the development environment) and are
+tested with mocks only.

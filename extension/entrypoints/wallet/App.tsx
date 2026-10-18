@@ -66,6 +66,7 @@ import { assessTransaction } from '../../lib/wallet/risk/assess';
 import { gatherRecipientCode, isListedTokenAddress, selectCodeResult } from '../../lib/wallet/risk/gather';
 import type { CodeResultStore } from '../../lib/wallet/risk/gather';
 import { clearLoadedHistory } from '../../lib/wallet/history/loaded';
+import { clearLoadedApprovals } from '../../lib/wallet/approvals/store';
 import { canSignReport, hasDanger } from '../../lib/wallet/risk/gate';
 import type { RiskReport } from '../../lib/wallet/risk/types';
 import {
@@ -100,6 +101,7 @@ import { Receive } from './pages/ReceivePage';
 import { AddressBookPage } from './pages/AddressBookPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SecurityCenterPage } from './pages/SecurityCenterPage';
+import { ApprovalsPage } from './pages/ApprovalsPage';
 import { AddAccountDialog } from './shell/AddAccountDialog';
 import { AddTokenDialog } from './shell/AddTokenDialog';
 import type { RecipientOption } from './shell/RecipientPicker';
@@ -423,6 +425,7 @@ function App() {
         const unlockedAddress = await getUnlockedAddress();
         if (unlockedAddress === null) {
           clearLoadedHistory();
+          clearLoadedApprovals();
           setAddTokenOpen(false);
           setStep('locked');
           navigate('overview');
@@ -602,6 +605,7 @@ function App() {
   async function handleLock() {
     setBusy(true);
     clearLoadedHistory();
+    clearLoadedApprovals();
     try {
       await lock();
       await appendSecurityLog('lock_manual');
@@ -619,8 +623,9 @@ function App() {
   async function handleSwitchAccount(index: number) {
     const result = await switchAccount(index);
     if (!result.ok) return;
-    // History loaded for the previous account must not be read for this one.
+    // History and approvals loaded for the previous account must not be read for this one.
     clearLoadedHistory();
+    clearLoadedApprovals();
     resetSendFlow();
     setActiveIndex(result.index);
     setAddress(result.address);
@@ -1011,6 +1016,8 @@ function App() {
                 onRemove={handleRemoveContact}
               />
             )}
+
+            {route === 'approvals' && <ApprovalsPage />}
 
             {route === 'security' && (
               <SecurityCenterPage autoLockMinutes={settings.autoLockMinutes} log={securityLog} />

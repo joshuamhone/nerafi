@@ -4,6 +4,7 @@ export type Route =
   | 'send'
   | 'receive'
   | 'contacts'
+  | 'approvals'
   | 'security'
   | 'settings';
 
@@ -18,6 +19,7 @@ export function parseRoute(hash: string): Route {
   if (value === '/send' || value === 'send') return 'send';
   if (value === '/receive' || value === 'receive') return 'receive';
   if (value === '/contacts' || value === 'contacts') return 'contacts';
+  if (value === '/approvals' || value === 'approvals') return 'approvals';
   if (value === '/security' || value === 'security') return 'security';
   if (value === '/settings' || value === 'settings') return 'settings';
   if (

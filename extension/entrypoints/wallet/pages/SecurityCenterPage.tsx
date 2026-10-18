@@ -1,6 +1,8 @@
 import { browser } from 'wxt/browser';
 import { FindingList } from '../../../components/FindingList';
 import { Notice } from '../../../components/Notice';
+import { assessApprovalsForSecurityCenter } from '../../../lib/wallet/approvals/securityCenter';
+import { getLoadedApprovals } from '../../../lib/wallet/approvals/store';
 import { PART_FAILURE_NOTES } from '../../../lib/wallet/history/combined';
 import { getLoadedHistory } from '../../../lib/wallet/history/loaded';
 import { NO_WARNINGS_TEXT } from '../../../lib/wallet/risk/gate';
@@ -11,6 +13,7 @@ import {
 } from '../../../lib/wallet/risk/posture';
 import type { ManifestLike } from '../../../lib/wallet/risk/posture';
 import { THREATS } from '../../../lib/wallet/risk/threats';
+import { sortFindings } from '../../../lib/wallet/risk/types';
 import type { SecurityLogEntry } from '../../../lib/wallet/securityLog';
 import { autoLockLabel } from '../../../lib/wallet/settings';
 import type { AutoLockMinutes } from '../../../lib/wallet/settings';
@@ -53,9 +56,14 @@ export function SecurityCenterPage({ autoLockMinutes, log }: SecurityCenterPageP
     manifest: readManifest(),
   });
 
-  const attention = report.findings.filter((finding) => finding.severity !== 'info');
-  const notes = report.findings.filter((finding) => finding.severity === 'info');
-  const devBuildNote = devBuildNoteFor(report.findings);
+  // The approvals check reads only the in-memory result for this account.
+  const approvalsCheck = assessApprovalsForSecurityCenter(getLoadedApprovals(address));
+  const findings = sortFindings([...report.findings, ...approvalsCheck.findings]);
+  const skipped = [...report.skipped, ...approvalsCheck.skipped];
+
+  const attention = findings.filter((finding) => finding.severity !== 'info');
+  const notes = findings.filter((finding) => finding.severity === 'info');
+  const devBuildNote = devBuildNoteFor(findings);
 
   return (
     <section className="page">
@@ -81,7 +89,7 @@ export function SecurityCenterPage({ autoLockMinutes, log }: SecurityCenterPageP
 
           {devBuildNote !== null && <p className="security-selfreport">{devBuildNote}</p>}
 
-          {report.skipped.map((text) => (
+          {skipped.map((text) => (
             <Notice key={text} variant="info">
               {text}
             </Notice>

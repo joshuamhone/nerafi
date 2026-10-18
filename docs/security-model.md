@@ -1040,3 +1040,129 @@ loaded, and makes no request of its own.
 - Simulation: nothing predicts the effect of a transaction.
 - Contract reputation: a contract is only noticed as a contract, not judged.
 - Any address that is a lookalike of one you have never saved or sent to.
+
+## Approvals (Milestone 10)
+
+Milestone 10 adds an Approvals page (`#/approvals`) that lists the active ERC-20
+allowances the active account has granted, each checked against current on-chain
+state. **It is read-only.** Nothing in `lib/wallet/approvals/` signs, builds a
+transaction, or encodes a write; there is no Revoke button, and the page says only
+"Removing an approval is not available yet." The vault, session, unlock, send and
+confirm flows are untouched, and the manifest still requests only `storage`.
+
+### What an approval is
+
+When you approve a spender for a token, the token contract records an *allowance*:
+how much of that token the spender may move from your account, without asking you
+again. An "unlimited" approval is the largest possible number. A spender that is
+trusted today can be compromised tomorrow, and an old approval stays in force until
+it is changed, so a list of what you have granted is worth having.
+
+### Where the list comes from, and why the chain decides
+
+1. **Discovery (Blockscout).** A request to the existing Blockscout host asks its
+   Etherscan-compatible `getLogs` for `Approval(address,address,uint256)` events whose
+   owner is this account (`topic1` is the owner padded to 32 bytes). The log says an
+   approval was granted at some point. If a reply is exactly full (1,000 logs) the next
+   request starts at the last block seen, logs of that boundary block that come back
+   are removed by (transaction hash, log index), and at most three requests are made
+   per refresh.
+2. **Verification (the RPC).** The log is only a pointer. For each distinct
+   (token, spender) pair Nerafi reads `allowance(owner, spender)` from the Sepolia
+   RPC and shows the pair only if the allowance is above zero **now**. A later
+   approval, a revoke, or a spend changes the current value, which the old log
+   cannot show. For tokens not in your list it also reads `symbol`, `name` and
+   `decimals` (sanitised like every token text), and for each spender it reads
+   whether the address is a contract (`eth_getCode`).
+3. **What can fail, and how it shows.** A pair whose allowance cannot be read goes
+   into a separate "Couldn't check" list, never into the active list and never
+   dropped. A failed contract lookup is `unknown`, never "wallet". Unreadable
+   decimals show "Amount unavailable"; decimals are never guessed. Allowances at or
+   above 2^255 show as "Unlimited".
+
+No more than four reads are in flight at once, and each succeeds or fails alone.
+
+### What the Blockscout call does and does not give (checked against the live API)
+
+- A successful reply is `{ "message": "OK", "result": [...], "status": "1" }`. Block
+  numbers and log indexes are hex strings. `topics` always has four slots: an
+  ERC-20 Approval is `[signature, owner, spender, null]`, and an ERC-721-style
+  Approval has a fourth, non-null topic. The latter are counted as "other approval
+  events" and are not shown or treated as unreadable.
+- **One request returns at most 1,000 logs, oldest first, and `page` and `offset` are
+  ignored.** That is why continuing uses `fromBlock`. This was checked against the live
+  API for one account with more than 2,000 such logs: asking again from the last block
+  seen returned that block's 4 logs a second time plus 996 newer ones, in ascending
+  order, which is why repeats are removed by (transaction hash, log index). After three
+  full requests the list is flagged: "newer approvals may be missing", because the
+  newest logs are the ones left unread.
+- **A failure anywhere fails the whole load.** If any request in the sequence is rate
+  limited, times out, errors or returns something unreadable, the page shows an error
+  and nothing else: whatever list was shown before is dropped, so a partial or
+  out-of-date list is never presented as complete or current.
+- **Keyless requests are tightly rate limited** (HTTP 429, with `status "0"` and a null
+  `result`; the limit header said 10, and a few test requests were enough to be blocked
+  for most of an hour, so three requests per refresh can use up a good part of the
+  quota). An account with no approvals gets a different, normal reply: `status "0"`,
+  `message "No logs found"` and an empty `result` array. Discovery therefore runs only when the Approvals
+  page is opened or Refresh is pressed, never on startup, on an account switch or from
+  the Security Center; a 429 is never retried automatically and is shown as an error:
+  "Blockscout is rate limiting requests. Try again in about N minutes. Refreshing again will
+  not help until then." when the `x-ratelimit-reset` header (milliseconds, listed in
+  Blockscout's `access-control-expose-headers` so a page in the extension can read it) is
+  present and believable (more than zero and at most an hour), and otherwise "Blockscout is
+  rate limiting requests. This can take 15 minutes or more to clear. Refreshing again will not
+  help until then." Refresh is disabled for 10 seconds after each press. A 429 is never read
+  as "no approvals".
+- The query can be slow (seconds, and in one test no answer within 90 seconds), so
+  discovery has **one 60-second budget shared by all its requests**, not a limit per
+  request. When the budget runs out, the request in progress is cancelled and the whole
+  load fails with "Blockscout took too long to answer. Try again in a moment." (a
+  different message from a network failure); nothing already read is shown. While it
+  runs, the page says which request it is on: "Checking approvals (request 1 of up to
+  3)...", then "Checking each approval against the network..." once the logs are read.
+  The on-chain reads that follow are not part of that budget.
+- Nerafi shows the 100 most recent distinct (token, spender) pairs and says so when
+  there were more.
+
+### Findings
+
+Each active approval gets plain-language findings, sorted danger, caution, info. They
+are advisory heuristics with no score, and they read but never change the known set.
+
+| Id | Severity | Fires when |
+|---|---|---|
+| `approval_spender_lookalike` | danger | the spender resembles one of your accounts, contacts or sent recipients (the same lookalike rule as sending) |
+| `approval_unlimited` | caution | the allowance is 2^255 or more |
+| `approval_spender_is_wallet` | caution | the spender is an ordinary wallet, not a contract |
+| `approval_check_failed` | caution | the spender type or the token's details could not be read |
+| `approval_token_unlisted` | info | the token is not in your list ("Anyone can create a token with any name") |
+
+### Account binding
+
+The result is kept in memory only, stored with the account it was loaded for, and read
+back only for that same active account (case-insensitive). It is cleared on lock, on
+account switch and when the session expires, wherever the loaded Activity history is
+cleared. A load that finishes after you have left the account or the page is
+discarded.
+
+### Security Center
+
+One extra check, `unlimited_approvals` (caution), counts unlimited approvals in the
+in-memory result for the active account and makes no request. If nothing is loaded it
+says "Approvals not loaded yet. Open Approvals." instead of reporting the check as
+clear.
+
+### What this does not cover
+
+- **Permit2 and signed permits** (including ERC-2612 `permit` signatures), which grant
+  spending rights without an `Approval` log from the token.
+- **NFT approvals**: ERC-721 `Approval` events are counted but not listed, and
+  `ApprovalForAll` is not looked for.
+- Approvals beyond the 3,000 logs three requests can read, or beyond the 100 most
+  recent pairs.
+- Tokens that do not emit a standard `Approval` event, and non-standard allowance
+  schemes.
+- Whether a spender is trustworthy. Nerafi only says whether it is a contract or a
+  wallet and whether it looks like an address you know.
+- Removing an approval: not available yet.
