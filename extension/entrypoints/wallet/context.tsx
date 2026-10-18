@@ -7,6 +7,7 @@ import { createSepoliaClient, SEPOLIA_CHAIN_ID, SEPOLIA_RPC_URL } from '../../li
 import { createTokenClient, readTokenBalances } from '../../lib/wallet/tokens';
 import type { Token } from '../../lib/wallet/tokens';
 import { clearLoadedHistory } from '../../lib/wallet/history/loaded';
+import { clearLoadedApprovals } from '../../lib/wallet/approvals/store';
 
 export type NetworkStatus = 'checking' | 'reachable' | 'unreachable';
 
@@ -170,7 +171,10 @@ export function WalletProvider({
   // Loaded history is kept in memory for the Security Center and must not
   // outlive the unlocked wallet: the provider goes away on lock.
   useEffect(() => {
-    return () => clearLoadedHistory();
+    return () => {
+      clearLoadedHistory();
+      clearLoadedApprovals();
+    };
   }, []);
 
   useEffect(() => {

@@ -365,3 +365,26 @@ export function ShieldIcon({ size = 16, className }: IconProps) {
     </svg>
   );
 }
+
+export function ApprovalsIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="5.25" cy="8" r="3" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M8.25 8h5.5M11.5 8v2.25M13.75 8v1.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

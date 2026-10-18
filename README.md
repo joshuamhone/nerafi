@@ -34,6 +34,9 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
 - **Milestone 9 — complete:** advisory risk findings on the review cheque ("Before
   you sign") and a Security Center page. No score, and no claim that anything is
   safe.
+- **Milestone 10 — complete:** a read-only Approvals page listing the active ERC-20
+  token approvals the account has granted, each checked against current on-chain
+  state. No Revoke button yet.
 
 ## Features
 
@@ -225,6 +228,30 @@ Testnet-only Chrome extension wallet that explains transactions before you sign.
   permissions. It also lists five threats and says plainly what Nerafi does and does
   not do about each; phishing sites and malicious approvals are not covered yet.
 
+**Milestone 10 — the Approvals page**
+
+- **Active token approvals.** `#/approvals` lists the ERC-20 allowances this account has
+  granted. Blockscout's event log points at (token, spender) pairs; the Sepolia RPC
+  then says what each allowance is *now*, and only a current allowance above zero is
+  listed. Each row shows the token symbol, the full token contract address, the full
+  spender address (marked contract or wallet) and the allowance ("Unlimited" at 2^255
+  and above).
+- **Plain-language findings, no score.** A spender that looks like an address you know
+  is a danger finding; an unlimited allowance, an ordinary-wallet spender and details
+  that could not be read are cautions; an unlisted token is a note.
+- **Honest limits.** The list may be incomplete and does not cover Permit2 or signed
+  permits. Blockscout returns at most 1,000 logs per request, oldest first, so Nerafi
+  continues from the last block seen for up to three requests; if the last one is still
+  full, the page says newer approvals may be missing. Discovery has one 60-second budget
+  and runs only when you open the page or press Refresh (disabled for 10 seconds after a
+  press). A rate limit, a timeout or any failure part-way fails the whole load and shows
+  only the error, never a partial list and never "none". While it runs the page says
+  which request it is on.
+- **Read-only.** There is no Revoke button: "Removing an approval is not available
+  yet." No signing, transaction building or write calldata was added.
+- **Security Center.** One more check counts unlimited approvals from what is already
+  loaded, and tells you to open Approvals if nothing is.
+
 ## Design
 
 The wallet is styled like a security document. The one irreversible action —
@@ -330,6 +357,13 @@ extension/
       gate.ts         canSignReport, the shared acknowledgement wording.
       posture.ts      Pure wallet-level findings for the Security Center.
       threats.ts      The five threats and what Nerafi does and does not do.
+    approvals/
+      fetch.ts        The Blockscout Approval-log requests (paging, 60 s budget).
+      parse.ts        Strict parser for the getLogs reply (ERC-20 vs ERC-721 style).
+      candidates.ts   Distinct (token, spender) pairs, newest first, capped at 100.
+      verify.ts       Read-only on-chain checks: allowance, token details, spender code.
+      findings.ts     Plain-language findings for each active approval.
+      store.ts        In-memory result bound to the account; cleared on lock/switch.
     lookalike.ts      Lookalike detection and per-character address diffing.
     recipientSafety.ts  Known-set construction and recipient classification.
     network.ts        Sepolia chain ID, RPC client, and balance lookup.
